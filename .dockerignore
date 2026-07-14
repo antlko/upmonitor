@@ -1,0 +1,25 @@
+# Git / editor
+.git
+.gitignore
+.github
+.idea
+.vscode
+
+# Node
+**/node_modules
+web-ui/dist
+
+# Go build cache / local binaries
+backend/upmonitor
+backend/internal/web/dist
+
+# Local runtime data (never bake into the image)
+config
+**/*.db
+**/*.db-shm
+**/*.db-wal
+
+# Docs & meta (not needed in the build context)
+*.md
+docs
+LICENSE

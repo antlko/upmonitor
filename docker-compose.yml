@@ -1,0 +1,17 @@
+# upmonitor — copy this file and run `docker compose up -d`,
+# or paste it into Portainer → Stacks → Add stack.
+services:
+  upmonitor:
+    image: ghcr.io/anatolkzh/upmonitor:latest
+    # To build from source instead of pulling the image, comment out `image:`
+    # above and uncomment the next line:
+    # build: .
+    container_name: upmonitor
+    ports:
+      - "8080:8080"
+    volumes:
+      - upmonitor-config:/config
+    restart: unless-stopped
+
+volumes:
+  upmonitor-config:

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <title>upmonitor</title>
+    <script>
+      // Apply the persisted theme before paint to avoid a flash of the wrong theme.
+      ;(function () {
+        try {
+          var t = JSON.parse(localStorage.getItem('upmonitor-theme') || '"dark"')
+          document.documentElement.classList.toggle('dark', t !== 'light')
+        } catch (e) {
+          document.documentElement.classList.add('dark')
+        }
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

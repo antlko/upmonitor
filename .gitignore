@@ -1,0 +1,23 @@
+# --- Local runtime config data (never commit) ---
+/config/config.yaml
+/config/*.db
+/config/*.db-shm
+/config/*.db-wal
+/config/images/
+/config/backups/
+
+# --- Compiled binaries ---
+/upmonitor
+backend/upmonitor
+
+# --- Embedded web build (generated; keep only the placeholder) ---
+backend/internal/web/dist/*
+!backend/internal/web/dist/index.html
+
+# --- Node / Vite ---
+node_modules/
+web-ui/dist/
+
+# --- OS / misc ---
+.DS_Store
+*.log
