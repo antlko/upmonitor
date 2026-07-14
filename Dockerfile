@@ -29,7 +29,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 FROM gcr.io/distroless/static:latest
 LABEL org.opencontainers.image.title="upmonitor" \
       org.opencontainers.image.description="Simple self-hosted service monitoring" \
-      org.opencontainers.image.source="https://github.com/anatolkzh/upmonitor"
+      org.opencontainers.image.source="https://github.com/anatolk/upmonitor"
 COPY --from=build /upmonitor /upmonitor
 ENV UPMONITOR_CONFIG_DIR=/config \
     UPMONITOR_ADDR=:8080

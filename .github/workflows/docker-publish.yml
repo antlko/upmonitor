@@ -30,8 +30,8 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          # Change this if your GHCR namespace differs from `anatolkzh`.
-          images: ghcr.io/anatolkzh/upmonitor
+          # Change this if your GHCR namespace differs from `anatolk`.
+          images: ghcr.io/anatolk/upmonitor
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=tag
