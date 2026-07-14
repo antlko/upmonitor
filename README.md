@@ -8,7 +8,7 @@ A modern, minimal dashboard for keeping an eye on your web services. Add a URL,
 watch its status, response time and uptime in real time, and rearrange
 everything with drag‑and‑drop. One tiny container, one config file, zero fuss.
 
-[![Docker image](https://img.shields.io/badge/ghcr.io-anatolk%2Fupmonitor-2496ED?logo=docker&logoColor=white)](https://github.com/anatolk/upmonitor/pkgs/container/upmonitor)
+[![Docker image](https://img.shields.io/badge/ghcr.io-anatolk%2Fupmonitor-2496ED?logo=docker&logoColor=white)](https://github.com/antlko/upmonitor/pkgs/container/upmonitor)
 [![Made with Go + Vue](https://img.shields.io/badge/stack-Go%20%2B%20Vue%203-00ADD8?logo=go&logoColor=white)](#how-it-works)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -57,7 +57,7 @@ docker run -d \
   -p 8080:8080 \
   -v upmonitor-config:/config \
   --restart unless-stopped \
-  ghcr.io/anatolk/upmonitor:latest
+  ghcr.io/antlko/upmonitor:latest
 ```
 
 Open **http://localhost:8080** and create your admin account.
@@ -69,7 +69,7 @@ Save this as `docker-compose.yml` and run `docker compose up -d`:
 ```yaml
 services:
   upmonitor:
-    image: ghcr.io/anatolk/upmonitor:latest
+    image: ghcr.io/antlko/upmonitor:latest
     container_name: upmonitor
     ports:
       - "8080:8080"
@@ -95,7 +95,7 @@ That's it — nothing to build.
 No published image needed; build it yourself:
 
 ```bash
-git clone https://github.com/anatolk/upmonitor.git
+git clone https://github.com/antlko/upmonitor.git
 cd upmonitor
 docker compose up -d --build   # uncomment `build: .` in docker-compose.yml first
 # ...or build the image directly:

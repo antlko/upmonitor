@@ -2,7 +2,7 @@
 # or paste it into Portainer → Stacks → Add stack.
 services:
   upmonitor:
-    image: ghcr.io/anatolk/upmonitor:latest
+    image: ghcr.io/antlko/upmonitor:latest
     # To build from source instead of pulling the image, comment out `image:`
     # above and uncomment the next line:
     # build: .
