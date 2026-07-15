@@ -103,3 +103,30 @@ func (db *DB) LogNotification(integrationID, incidentID int64, event, status, er
 		integrationID, incidentID, event, status, nullStr(errMsg), ts)
 	return err
 }
+
+// ReplaceIntegrations deletes all integrations and inserts the given ones,
+// preserving IDs (for archive import). notification_log rows cascade away.
+func (db *DB) ReplaceIntegrations(integrations []Integration) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM integrations`); err != nil {
+		return err
+	}
+	for _, in := range integrations {
+		cfg := in.Config
+		if cfg == nil {
+			cfg = json.RawMessage("{}")
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO integrations (id, type, name, enabled, config, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			in.ID, in.Type, in.Name, in.Enabled, []byte(cfg), in.CreatedAt, in.UpdatedAt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

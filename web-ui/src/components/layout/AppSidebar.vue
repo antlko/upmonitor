@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { LayoutDashboard, Boxes, Clock, Settings, PanelLeft } from '@lucide/vue'
+import { LayoutDashboard, Boxes, TriangleAlert, Bell, Settings, PanelLeft } from '@lucide/vue'
 import BrandMark from '@/components/common/BrandMark.vue'
 import SidebarNavItem from './SidebarNavItem.vue'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
@@ -20,13 +20,15 @@ interface NavItem {
   badge?: string
 }
 
-// Read-only users only get the dashboard; admins get everything.
+// Incidents are visible to everyone (comments come from any user); admin-only
+// pages (Resources, Integrations, Settings) are gated.
 const nav = computed<NavItem[]>(() => {
   const items: NavItem[] = [{ to: '/', label: 'Dashboard', icon: LayoutDashboard }]
+  if (auth.isAdmin) items.push({ to: '/resources', label: 'Resources', icon: Boxes })
+  items.push({ to: '/incidents', label: 'Incidents', icon: TriangleAlert })
   if (auth.isAdmin) {
     items.push(
-      { to: '/resources', label: 'Resources', icon: Boxes },
-      { to: '/cron', label: 'Cron Jobs', icon: Clock, badge: 'Soon' },
+      { to: '/integrations', label: 'Integrations', icon: Bell },
       { to: '/settings', label: 'Settings', icon: Settings },
     )
   }

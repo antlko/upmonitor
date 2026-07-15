@@ -1,11 +1,12 @@
 // Package archive implements configuration export/import as a .zip bundle
-// (config.yaml + images/). Import validates everything, snapshots the current
-// config to backups/, then applies the new bundle.
+// (config.yaml + images/ + incidents.json + integrations.json). Import validates
+// everything, snapshots the current config to backups/, then applies the bundle.
 package archive
 
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -15,11 +16,28 @@ import (
 	"time"
 
 	"upmonitor/internal/config"
+	"upmonitor/internal/db"
 	"upmonitor/internal/image"
 )
 
-// Export writes a zip of dir's config.yaml and images/ to w.
-func Export(dir string, w io.Writer) error {
+// Zip entry names for the DB-backed data included in a bundle.
+const (
+	incidentsFile    = "incidents.json"
+	integrationsFile = "integrations.json"
+)
+
+type incidentsBundle struct {
+	Incidents []db.Incident        `json:"incidents"`
+	Comments  []db.IncidentComment `json:"comments"`
+}
+
+type integrationsBundle struct {
+	Integrations []db.Integration `json:"integrations"`
+}
+
+// Export writes a zip of dir's config.yaml, images/, and the DB-backed incidents
+// and integrations to w. Integration secrets are included in plaintext.
+func Export(dir string, w io.Writer, database *db.DB) error {
 	zw := zip.NewWriter(w)
 
 	cfgData, err := os.ReadFile(config.YAMLPath(dir))
@@ -54,11 +72,53 @@ func Export(dir string, w io.Writer) error {
 			return err
 		}
 	}
+
+	if database != nil {
+		incidents, comments, err := exportIncidents(database)
+		if err != nil {
+			return err
+		}
+		if err := writeJSON(zw, incidentsFile, incidentsBundle{Incidents: incidents, Comments: comments}); err != nil {
+			return err
+		}
+		integrations, err := database.ListIntegrations()
+		if err != nil {
+			return err
+		}
+		if err := writeJSON(zw, integrationsFile, integrationsBundle{Integrations: integrations}); err != nil {
+			return err
+		}
+	}
 	return zw.Close()
 }
 
+func exportIncidents(database *db.DB) ([]db.Incident, []db.IncidentComment, error) {
+	incidents, err := database.ListIncidents("", "", 0, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	comments, err := database.AllIncidentComments()
+	if err != nil {
+		return nil, nil, err
+	}
+	return incidents, comments, nil
+}
+
+func writeJSON(zw *zip.Writer, name string, v any) error {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	f, err := zw.Create(name)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	return err
+}
+
 // Backup snapshots dir to dir/backups/backup-<timestamp>.zip and returns the path.
-func Backup(dir string) (string, error) {
+func Backup(dir string, database *db.DB) (string, error) {
 	backupsDir := config.BackupsPath(dir)
 	if err := os.MkdirAll(backupsDir, 0o755); err != nil {
 		return "", err
@@ -70,21 +130,23 @@ func Backup(dir string) (string, error) {
 		return "", err
 	}
 	defer f.Close()
-	if err := Export(dir, f); err != nil {
+	if err := Export(dir, f, database); err != nil {
 		return "", err
 	}
 	return p, nil
 }
 
 // Import validates a zip bundle, backs up the current config, then applies the
-// new config.yaml and images. It returns the parsed config on success.
-func Import(dir string, data []byte) (*config.Config, error) {
+// new config.yaml, images, incidents and integrations. Bundles that omit
+// incidents.json / integrations.json (older exports) leave that data untouched.
+// It returns the parsed config on success.
+func Import(dir string, data []byte, database *db.DB) (*config.Config, error) {
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return nil, fmt.Errorf("invalid zip: %w", err)
 	}
 
-	var cfgData []byte
+	var cfgData, incidentsData, integrationsData []byte
 	images := map[string][]byte{}
 
 	for _, f := range zr.File {
@@ -92,6 +154,16 @@ func Import(dir string, data []byte) (*config.Config, error) {
 		switch {
 		case name == config.FileName:
 			cfgData, err = readZip(f, 1<<20)
+			if err != nil {
+				return nil, err
+			}
+		case name == incidentsFile:
+			incidentsData, err = readZip(f, 8<<20)
+			if err != nil {
+				return nil, err
+			}
+		case name == integrationsFile:
+			integrationsData, err = readZip(f, 1<<20)
 			if err != nil {
 				return nil, err
 			}
@@ -120,8 +192,26 @@ func Import(dir string, data []byte) (*config.Config, error) {
 		return nil, fmt.Errorf("config.yaml is invalid: %w", err)
 	}
 
+	// Parse DB bundles up front so a malformed archive fails before any changes.
+	var incidents *incidentsBundle
+	if incidentsData != nil {
+		var b incidentsBundle
+		if err := json.Unmarshal(incidentsData, &b); err != nil {
+			return nil, fmt.Errorf("incidents.json is invalid: %w", err)
+		}
+		incidents = &b
+	}
+	var integrations *integrationsBundle
+	if integrationsData != nil {
+		var b integrationsBundle
+		if err := json.Unmarshal(integrationsData, &b); err != nil {
+			return nil, fmt.Errorf("integrations.json is invalid: %w", err)
+		}
+		integrations = &b
+	}
+
 	// Snapshot current state before making any changes.
-	if _, err := Backup(dir); err != nil {
+	if _, err := Backup(dir, database); err != nil {
 		return nil, fmt.Errorf("backup current config: %w", err)
 	}
 
@@ -137,6 +227,18 @@ func Import(dir string, data []byte) (*config.Config, error) {
 		id := strings.TrimSuffix(name, ".webp")
 		if _, err := image.Save(imagesDir, id, b); err != nil {
 			return nil, fmt.Errorf("write image %q: %w", name, err)
+		}
+	}
+
+	// Replace DB-backed data only when present in the archive.
+	if database != nil && incidents != nil {
+		if err := database.ReplaceIncidents(incidents.Incidents, incidents.Comments); err != nil {
+			return nil, fmt.Errorf("apply incidents: %w", err)
+		}
+	}
+	if database != nil && integrations != nil {
+		if err := database.ReplaceIntegrations(integrations.Integrations); err != nil {
+			return nil, fmt.Errorf("apply integrations: %w", err)
 		}
 	}
 	return cfg, nil

@@ -37,17 +37,6 @@ async function signOut() {
     <h1 class="text-sm font-semibold tracking-tight">{{ title }}</h1>
 
     <div class="ml-auto flex items-center gap-2">
-      <!-- Live auto-refresh indicator -->
-      <div
-        class="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 sm:flex"
-      >
-        <span class="relative flex size-2">
-          <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-online opacity-75" />
-          <span class="relative inline-flex size-2 rounded-full bg-online" />
-        </span>
-        <span class="text-xs font-medium text-muted-foreground">Live</span>
-      </div>
-
       <ThemeToggle />
 
       <Separator orientation="vertical" class="mx-0.5 h-6" />

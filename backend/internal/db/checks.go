@@ -161,6 +161,23 @@ func (db *DB) SeriesFor(serviceID string, since, now int64, buckets int) ([]Seri
 	return points, rows.Err()
 }
 
+// UptimeSince returns a single service's uptime percentage and the number of
+// checks it is based on, over [since, now]. sampleCount is 0 when there is no
+// history in the window (uptime is then 0).
+func (db *DB) UptimeSince(serviceID string, since int64) (pct float64, sampleCount int, err error) {
+	var total, up int
+	err = db.QueryRow(`
+		SELECT COUNT(*), COALESCE(SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END), 0)
+		FROM checks WHERE service_id = ? AND ts >= ?`, serviceID, since).Scan(&total, &up)
+	if err != nil {
+		return 0, 0, err
+	}
+	if total > 0 {
+		pct = float64(up) / float64(total) * 100
+	}
+	return pct, total, nil
+}
+
 // DeleteOlderThan removes checks older than cutoff and returns the row count.
 func (db *DB) DeleteOlderThan(cutoff int64) (int64, error) {
 	res, err := db.Exec(`DELETE FROM checks WHERE ts < ?`, cutoff)

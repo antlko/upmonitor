@@ -14,10 +14,28 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'Dashboard' },
   },
   {
+    path: '/services/:id',
+    name: 'service-detail',
+    component: () => import('@/views/ServiceDetailView.vue'),
+    meta: { title: 'Service' },
+  },
+  {
     path: '/resources',
     name: 'resources',
     component: () => import('@/views/ResourcesView.vue'),
     meta: { title: 'Resources' },
+  },
+  {
+    path: '/incidents',
+    name: 'incidents',
+    component: () => import('@/views/IncidentsView.vue'),
+    meta: { title: 'Incidents' },
+  },
+  {
+    path: '/incidents/:id',
+    name: 'incident-detail',
+    component: () => import('@/views/IncidentDetailView.vue'),
+    meta: { title: 'Incident' },
   },
   {
     path: '/settings',
@@ -26,10 +44,10 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'Settings' },
   },
   {
-    path: '/cron',
-    name: 'cron',
-    component: () => import('@/views/CronJobsView.vue'),
-    meta: { title: 'Cron Jobs' },
+    path: '/integrations',
+    name: 'integrations',
+    component: () => import('@/views/IntegrationsView.vue'),
+    meta: { title: 'Integrations' },
   },
   {
     path: '/setup',
@@ -57,7 +75,7 @@ const routes: RouteRecordRaw[] = [
   },
 ]
 
-const adminOnly = new Set(['resources', 'settings', 'cron'])
+const adminOnly = new Set(['resources', 'settings', 'integrations'])
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),

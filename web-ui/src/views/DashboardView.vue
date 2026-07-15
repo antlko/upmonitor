@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Plus, Boxes, LoaderCircle } from '@lucide/vue'
 import ServiceGrid from '@/components/dashboard/ServiceGrid.vue'
 import ServiceFormDialog from '@/components/services/ServiceFormDialog.vue'
@@ -13,7 +13,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useServicesPolling } from '@/composables/useServicesPolling'
 import { optimizeToWebP, svgToWebP } from '@/lib/image'
 import { ApiError } from '@/api'
-import type { Service } from '@/types'
+import type { Service, WidgetMode } from '@/types'
 import { formatUptime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -30,6 +30,7 @@ const confirmService = ref<Service | null>(null)
 
 const fileInput = ref<HTMLInputElement>()
 const imageTargetId = ref<string | null>(null)
+const hoveredServiceId = ref<string | null>(null)
 
 const showEmpty = computed(() => services.loaded && !services.hasServices)
 const stats = computed(() => [
@@ -97,21 +98,52 @@ async function onConfirmDelete() {
     toast.error(errMsg(e))
   }
 }
+async function uploadImageFor(id: string, file: File) {
+  try {
+    const blob = await optimizeToWebP(file)
+    await services.uploadIcon(id, blob)
+    toast.success('Image updated')
+  } catch (err) {
+    toast.error(errMsg(err))
+  }
+}
 async function onFileChange(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
-  if (file && imageTargetId.value) {
-    const id = imageTargetId.value
-    try {
-      const blob = await optimizeToWebP(file)
-      await services.uploadIcon(id, blob)
-      toast.success('Image updated')
-    } catch (err) {
-      toast.error(errMsg(err))
-    }
-  }
+  if (file && imageTargetId.value) await uploadImageFor(imageTargetId.value, file)
   input.value = ''
 }
+async function onSetWidgetMode(id: string, mode: WidgetMode) {
+  try {
+    await services.setWidgetMode(id, mode)
+  } catch (e) {
+    toast.error(errMsg(e))
+  }
+}
+function onHover(id: string, entering: boolean) {
+  if (entering) hoveredServiceId.value = id
+  else if (hoveredServiceId.value === id) hoveredServiceId.value = null
+}
+
+// Ctrl+V an image over the hovered card to replace its icon.
+function onPaste(e: ClipboardEvent) {
+  const el = document.activeElement as HTMLElement | null
+  if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
+  const id = hoveredServiceId.value
+  if (!id) return
+  for (const item of e.clipboardData?.items ?? []) {
+    if (item.type.startsWith('image/')) {
+      const file = item.getAsFile()
+      if (file) {
+        e.preventDefault()
+        uploadImageFor(id, file)
+      }
+      return
+    }
+  }
+}
+onMounted(() => window.addEventListener('paste', onPaste))
+onUnmounted(() => window.removeEventListener('paste', onPaste))
 </script>
 
 <template>
@@ -158,6 +190,9 @@ async function onFileChange(e: Event) {
           @replace-image="openReplace"
           @generate-icon="openGenerate"
           @remove="openDelete"
+          @set-widget-mode="onSetWidgetMode"
+          @drop-image="uploadImageFor"
+          @hover="onHover"
         />
         <EmptyState
           v-else-if="showEmpty"

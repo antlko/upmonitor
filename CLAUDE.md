@@ -29,18 +29,24 @@ add Go tests under `internal/*` rather than inventing commands.
 - **Source of truth split:** `config.yaml` holds services + settings (the app rewrites it atomically);
   **SQLite** (`upmonitor.db`) holds users, sessions and metrics history. Both live in the config dir
   (`/config` in Docker; `UPMONITOR_CONFIG_DIR` / `--config-dir`, default `./config`).
-- **Backend packages** (`backend/internal/`): `config` (yaml load/save/validate), `db` (modernc pure-Go
+- **Backend packages** (`backend/internal/`): `state` (tiny `state.json` outside the config dir, recording
+  which config dir is active — lets a custom config-dir setting survive restarts), `config` (yaml load/save/validate), `db` (modernc pure-Go
   SQLite — keep `CGO_ENABLED=0`; schema via **goose** migrations in `db/migrations/*.sql`, embedded and
   run on `Open`), `auth` (bcrypt + session tokens; cookies are set by the api layer), `monitor` (HTTP
-  checker + goroutine-per-service ticker scheduler; `Sync` reconciles on config change), `image` (WebP
+  checker + goroutine-per-service ticker scheduler; `Sync` reconciles on config change; also reads the
+  TLS cert off HTTPS responses and feeds status transitions to `incident`), `incident` (opens/resolves
+  outage incidents from online↔offline transitions; imports `db`+`notify`, never `monitor`, to avoid a
+  cycle), `notify` (incident-start/resolve notifications; a `Dispatcher` fans out to per-type `Sender`s
+  — telegram/slack/email/webhook — registered via `init()`), `image` (WebP
   validate/store), `archive` (export/import zip), `logger` (slog JSON setup), `api` (the `Server` owns
   config+db+scheduler and applies edits copy-on-write under a lock; **Fiber v3** app with per-route
   auth/admin middleware, a central `ErrorHandler` rendering `{ "error": ... }`, and a native SPA
   catch-all serving the embedded FS), `web` (`//go:embed dist`, exposes `web.FS()`). Entry:
   `cmd/upmonitor/main.go` (inits slog, `app.Listen`, graceful `app.ShutdownWithContext`).
-- **Frontend:** Vue 3 `<script setup>`, Pinia stores (`auth`, `services`, `settings`, `ui`), typed API
-  client in `src/api/`, `useServicesPolling` (~10s) drives live updates. Router guards gate
-  setup/login/role.
+- **Frontend:** Vue 3 `<script setup>`, Pinia stores (`auth`, `services`, `incidents`, `integrations`,
+  `settings`, `ui`), typed API client in `src/api/`, `useServicesPolling` (~10s) drives live updates.
+  Router guards gate setup/login/role. `/incidents` is open to any signed-in user (anyone may comment);
+  mutations inside it are admin-gated. `/integrations` is admin-only.
 
 ## Conventions that bite
 
@@ -54,6 +60,10 @@ add Go tests under `internal/*` rather than inventing commands.
 - **Icon generation is procedural** (`src/lib/icon-generator.ts`, seeded SVG) — deliberately no AI model.
 - Config `layout` YAML serializes the `y` key quoted (`"y"`) because yaml.v3 treats bare `y` as a
   boolean; this is valid and round-trips — don't "fix" it.
+- **Dashboard layout saves only on a user drag/resize** (`GridItem` `@moved`/`@resized` in
+  `ServiceGrid.vue`). Never persist from `GridLayout`'s `@layout-updated`: it also fires when the grid
+  reflows for a narrower breakpoint, so merely resizing the window would overwrite the stored desktop
+  layout (there is one layout in config.yaml, not one per breakpoint).
 - Frontend types in `src/types` intentionally mirror the API DTOs in `backend/internal/api/dto.go`
   (camelCase); keep them in sync when changing shapes.
 - **Fiber handlers** return `fiber.NewError(code, msg)` for errors (the central `errorHandler` renders

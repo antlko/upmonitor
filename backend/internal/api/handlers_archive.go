@@ -14,7 +14,7 @@ const maxImportSize = 20 << 20 // 20 MiB
 // GET /api/config/export → download a backup.zip (config.yaml + images/).
 func (s *Server) handleExport(c fiber.Ctx) error {
 	var buf bytes.Buffer
-	if err := archive.Export(s.dir(), &buf); err != nil {
+	if err := archive.Export(s.dir(), &buf, s.conn()); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "export failed")
 	}
 	c.Set("Content-Type", "application/zip")
@@ -32,7 +32,7 @@ func (s *Server) handleImport(c fiber.Ctx) error {
 	if len(data) > maxImportSize {
 		return fiber.NewError(fiber.StatusRequestEntityTooLarge, "archive too large")
 	}
-	cfg, err := archive.Import(s.dir(), data)
+	cfg, err := archive.Import(s.dir(), data, s.conn())
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}

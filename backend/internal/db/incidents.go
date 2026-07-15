@@ -233,6 +233,90 @@ func (db *DB) ListIncidentComments(incidentID int64) ([]IncidentComment, error) 
 	return comments, rows.Err()
 }
 
+// AllIncidentComments returns every comment across all incidents (for export).
+func (db *DB) AllIncidentComments() ([]IncidentComment, error) {
+	rows, err := db.Query(
+		`SELECT c.id, c.incident_id, c.user_id, COALESCE(u.username, ''), c.body, c.created_at
+		 FROM incident_comments c LEFT JOIN users u ON u.id = c.user_id ORDER BY c.id ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	comments := []IncidentComment{}
+	for rows.Next() {
+		cm, err := scanComment(rows)
+		if err != nil {
+			return nil, err
+		}
+		comments = append(comments, *cm)
+	}
+	return comments, rows.Err()
+}
+
+// ReplaceIncidents deletes all incidents/comments and inserts the given ones,
+// preserving IDs (for archive import). User references not present in the users
+// table are nulled so foreign keys hold across instances.
+func (db *DB) ReplaceIncidents(incidents []Incident, comments []IncidentComment) error {
+	users, err := db.userIDSet()
+	if err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM incident_comments`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM incidents`); err != nil {
+		return err
+	}
+	for _, inc := range incidents {
+		createdBy := inc.CreatedBy
+		if createdBy != nil && !users[*createdBy] {
+			createdBy = nil
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO incidents (id, service_id, status, source, title, started_at, resolved_at, created_by, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			inc.ID, inc.ServiceID, inc.Status, inc.Source, nullStr(inc.Title),
+			inc.StartedAt, inc.ResolvedAt, createdBy, inc.CreatedAt, inc.UpdatedAt); err != nil {
+			return err
+		}
+	}
+	for _, cm := range comments {
+		userID := cm.UserID
+		if userID != nil && !users[*userID] {
+			userID = nil
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO incident_comments (id, incident_id, user_id, body, created_at) VALUES (?, ?, ?, ?, ?)`,
+			cm.ID, cm.IncidentID, userID, cm.Body, cm.CreatedAt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (db *DB) userIDSet() (map[int64]bool, error) {
+	rows, err := db.Query(`SELECT id FROM users`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	set := map[int64]bool{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		set[id] = true
+	}
+	return set, rows.Err()
+}
+
 // nullStr maps "" to a SQL NULL, otherwise the string.
 func nullStr(s string) any {
 	if s == "" {

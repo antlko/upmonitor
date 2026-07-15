@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { MoreHorizontal, Pencil, ImageUp, Sparkles, Trash2, ArrowUpRight } from '@lucide/vue'
-import type { Service } from '@/types'
+import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { useElementSize } from '@vueuse/core'
+import { MoreHorizontal, Pencil, ImageUp, Sparkles, Trash2, ArrowUpRight, Check } from '@lucide/vue'
+import type { Service, WidgetMode } from '@/types'
 import ServiceIcon from './ServiceIcon.vue'
 import StatusDot from './StatusDot.vue'
 import SparklineChart from './SparklineChart.vue'
@@ -10,17 +12,69 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
-import { statusLabel, formatLatency, formatUptime, timeAgo, prettyUrl } from '@/lib/format'
+import {
+  statusLabel,
+  formatLatency,
+  formatUptime,
+  timeAgo,
+  prettyUrl,
+  averageLatency,
+} from '@/lib/format'
 
-const props = withDefaults(defineProps<{ service: Service; readonly?: boolean }>(), {
-  readonly: false,
-})
-const emit = defineEmits<{ edit: []; replaceImage: []; generateIcon: []; remove: [] }>()
+const props = withDefaults(
+  defineProps<{ service: Service; readonly?: boolean; linkable?: boolean }>(),
+  { readonly: false, linkable: false },
+)
+const emit = defineEmits<{
+  edit: []
+  replaceImage: []
+  generateIcon: []
+  remove: []
+  setWidgetMode: [mode: WidgetMode]
+  dropImage: [file: File]
+  hover: [entering: boolean]
+}>()
 
 const s = computed(() => props.service)
+const router = useRouter()
+
+const widgetModes: { mode: WidgetMode; label: string }[] = [
+  { mode: 'icon', label: 'Icon only' },
+  { mode: 'name', label: 'Icon + name' },
+  { mode: 'dashboard', label: 'Mini dashboard' },
+]
+
+// Measure the sparkline container so the SVG's internal coordinate system matches
+// its rendered width (fixes the cramped/clipped chart at small widget sizes).
+const sparkWrap = ref<HTMLElement>()
+const { width: sparkWrapWidth } = useElementSize(sparkWrap)
+const sparkWidth = computed(() => sparkWrapWidth.value || 240)
+const avgLatency = computed(() => averageLatency(s.value.latencyHistory))
+
+// Distinguish a real click from the tail of a drag-to-rearrange gesture.
+let downX = 0
+let downY = 0
+const dragOver = ref(false)
+
+function onPointerDown(e: PointerEvent) {
+  downX = e.clientX
+  downY = e.clientY
+}
+function onCardClick(e: MouseEvent) {
+  if (!props.linkable) return
+  if (Math.abs(e.clientX - downX) > 4 || Math.abs(e.clientY - downY) > 4) return
+  router.push(`/services/${s.value.id}`)
+}
+function onDrop(e: DragEvent) {
+  dragOver.value = false
+  if (props.readonly) return
+  const file = e.dataTransfer?.files?.[0]
+  if (file && file.type.startsWith('image/')) emit('dropImage', file)
+}
 
 const borderClass = computed(
   () =>
@@ -56,13 +110,23 @@ function openService() {
   <div
     :class="
       cn(
-        'group/card relative flex h-full flex-col overflow-hidden rounded-xl border bg-card transition-all duration-200 hover:shadow-elevation-medium',
+        'group/card @container relative flex h-full flex-col overflow-hidden rounded-xl border bg-card transition-all duration-200 hover:shadow-elevation-medium',
         borderClass,
+        linkable && 'cursor-pointer',
+        dragOver && 'ring-2 ring-primary ring-offset-2 ring-offset-background',
       )
     "
+    @pointerdown="onPointerDown"
+    @click="onCardClick"
+    @mouseenter="emit('hover', true)"
+    @mouseleave="emit('hover', false)"
+    @dragover.prevent="!readonly && (dragOver = true)"
+    @dragenter.prevent="!readonly && (dragOver = true)"
+    @dragleave.prevent="dragOver = false"
+    @drop.prevent="onDrop"
   >
     <!-- Actions menu (shared across modes) -->
-    <div v-if="!readonly" class="absolute right-1.5 top-1.5 z-10">
+    <div v-if="!readonly" class="absolute right-1.5 top-1.5 z-10" @click.stop>
       <DropdownMenu>
         <DropdownMenuTrigger
           class="no-drag flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none transition-all hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/40 group-hover/card:opacity-100 data-[state=open]:bg-accent data-[state=open]:opacity-100"
@@ -71,10 +135,22 @@ function openService() {
         >
           <MoreHorizontal class="size-4" />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" class="w-48">
+        <DropdownMenuContent align="end" class="w-52">
           <DropdownMenuItem @select="openService">
             <ArrowUpRight />
             Open service
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel class="text-[11px] uppercase tracking-wide text-muted-foreground/70">
+            Widget
+          </DropdownMenuLabel>
+          <DropdownMenuItem
+            v-for="m in widgetModes"
+            :key="m.mode"
+            @select="emit('setWidgetMode', m.mode)"
+          >
+            <Check :class="s.widget.mode === m.mode ? 'opacity-100' : 'opacity-0'" />
+            {{ m.label }}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem @select="emit('edit')">
@@ -117,8 +193,8 @@ function openService() {
     <div v-else-if="s.widget.mode === 'name'" class="flex h-full items-center gap-3 p-3.5">
       <ServiceIcon :service="s" class="size-10 shrink-0" />
       <div class="min-w-0 flex-1">
-        <div class="flex items-center gap-1.5">
-          <StatusDot :status="s.status" />
+        <div class="flex min-w-0 items-center gap-1.5">
+          <StatusDot :status="s.status" class="shrink-0" />
           <span class="truncate text-sm font-semibold">{{ s.name }}</span>
         </div>
         <p class="mt-0.5 truncate text-xs text-muted-foreground">{{ prettyUrl(s.url) }}</p>
@@ -126,10 +202,10 @@ function openService() {
     </div>
 
     <!-- Mode: icon + name + mini dashboard -->
-    <div v-else class="flex h-full flex-col p-4">
-      <header class="flex items-start gap-3">
-        <ServiceIcon :service="s" class="size-10 shrink-0" />
-        <div class="min-w-0 flex-1 pr-6">
+    <div v-else class="flex h-full flex-col p-3.5 @[200px]:p-4">
+      <header class="flex min-w-0 items-center gap-2.5 @[200px]:gap-3">
+        <ServiceIcon :service="s" class="size-9 shrink-0 @[200px]:size-10" />
+        <div class="min-w-0 flex-1 pr-7">
           <span class="block truncate text-sm font-semibold leading-tight">{{ s.name }}</span>
           <p class="mt-0.5 truncate text-xs text-muted-foreground">{{ prettyUrl(s.url) }}</p>
         </div>
@@ -160,11 +236,19 @@ function openService() {
       </div>
 
       <div class="mt-auto pt-4">
-        <div v-if="s.latencyHistory.length" class="-mx-1">
-          <SparklineChart :values="s.latencyHistory" :color="sparkColor" class="w-full" :height="36" />
+        <div v-if="s.latencyHistory.length" ref="sparkWrap" class="-mx-1">
+          <SparklineChart
+            :values="s.latencyHistory"
+            :color="sparkColor"
+            :width="sparkWidth"
+            :height="36"
+            class="w-full"
+          />
         </div>
         <div class="mt-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
-          <span>{{ s.latencyHistory.length ? 'Response time · 24 checks' : 'Awaiting data' }}</span>
+          <span>{{
+            avgLatency != null ? `Avg response · ${formatLatency(avgLatency)}` : 'Awaiting data'
+          }}</span>
           <span>{{ timeAgo(s.lastCheck) }}</span>
         </div>
       </div>

@@ -44,6 +44,79 @@ export interface Service {
   latencyHistory: number[] // recent latencies for the sparkline
 }
 
+/** One bucketed point of the response-time / error time series. */
+export interface SeriesPoint {
+  ts: number
+  avgLatency: number | null
+  errors: number
+}
+
+/** Current TLS certificate snapshot for a service (null for HTTP services). */
+export interface ServiceTls {
+  checkedAt: string
+  validFrom: string | null
+  validUntil: string | null
+  issuer: string
+  subject: string
+  daysLeft: number | null
+  error: string
+}
+
+export interface UptimeWindows {
+  days7: number
+  days30: number
+  days365: number
+}
+
+/** Response of GET /api/services/:id/metrics — a Service plus detail extras. */
+export interface ServiceMetrics extends Service {
+  series: SeriesPoint[]
+  uptimeWindows: UptimeWindows
+  tls: ServiceTls | null
+}
+
+export type IncidentStatus = 'ongoing' | 'resolved'
+export type IncidentSource = 'auto' | 'manual'
+
+export interface Incident {
+  id: number
+  serviceId: string
+  serviceName: string
+  status: IncidentStatus
+  source: IncidentSource
+  title: string
+  startedAt: string
+  resolvedAt: string | null
+  createdBy: number | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface IncidentComment {
+  id: number
+  incidentId: number
+  username: string
+  body: string
+  createdAt: string
+}
+
+export interface IncidentDetail extends Incident {
+  comments: IncidentComment[]
+}
+
+export type IntegrationType = 'telegram' | 'slack' | 'email' | 'webhook'
+
+export interface Integration {
+  id: number
+  type: IntegrationType
+  name: string
+  enabled: boolean
+  config: Record<string, unknown>
+  secrets: Record<string, boolean>
+  createdAt: string
+  updatedAt: string
+}
+
 export interface User {
   id: number
   username: string
