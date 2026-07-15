@@ -18,6 +18,7 @@ import (
 	"upmonitor/internal/config"
 	"upmonitor/internal/db"
 	"upmonitor/internal/monitor"
+	"upmonitor/internal/notify"
 	"upmonitor/internal/state"
 	"upmonitor/internal/web"
 )
@@ -27,11 +28,12 @@ const maxBodyBytes = 32 << 20
 
 // Server holds all runtime state and serves the HTTP API + embedded SPA.
 type Server struct {
-	mu        sync.RWMutex
-	configDir string
-	cfg       *config.Config
-	database  *db.DB
-	sched     *monitor.Scheduler
+	mu         sync.RWMutex
+	configDir  string
+	cfg        *config.Config
+	database   *db.DB
+	sched      *monitor.Scheduler
+	dispatcher *notify.Dispatcher
 
 	app    *fiber.App
 	webFS  fs.FS
@@ -56,14 +58,16 @@ func New(configDir string) (*Server, error) {
 		return nil, err
 	}
 
+	dispatcher := notify.NewDispatcher(database)
 	s := &Server{
-		configDir: configDir,
-		cfg:       cfg,
-		database:  database,
-		sched:     monitor.New(database),
-		webFS:     web.FS(),
-		logins:    newLoginLimiter(),
-		stop:      make(chan struct{}),
+		configDir:  configDir,
+		cfg:        cfg,
+		database:   database,
+		sched:      monitor.New(database, dispatcher),
+		dispatcher: dispatcher,
+		webFS:      web.FS(),
+		logins:     newLoginLimiter(),
+		stop:       make(chan struct{}),
 	}
 	s.app = fiber.New(fiber.Config{
 		AppName:      "upmonitor",
@@ -109,6 +113,9 @@ func (s *Server) routes() {
 	app.Get("/api/services", auth, s.handleListServices)
 	app.Get("/api/services/:id/metrics", auth, s.handleServiceMetrics)
 	app.Get("/api/settings", auth, s.handleGetSettings)
+	app.Get("/api/incidents", auth, s.handleListIncidents)
+	app.Get("/api/incidents/:id", auth, s.handleGetIncident)
+	app.Post("/api/incidents/:id/comments", auth, s.handleAddIncidentComment)
 
 	// Admin only.
 	app.Post("/api/services", auth, admin, s.handleCreateService)
@@ -116,6 +123,9 @@ func (s *Server) routes() {
 	app.Put("/api/services/:id", auth, admin, s.handleUpdateService)
 	app.Delete("/api/services/:id", auth, admin, s.handleDeleteService)
 	app.Post("/api/services/:id/check", auth, admin, s.handleCheckNow)
+	app.Post("/api/incidents", auth, admin, s.handleCreateIncident)
+	app.Put("/api/incidents/:id", auth, admin, s.handleUpdateIncident)
+	app.Delete("/api/incidents/:id", auth, admin, s.handleDeleteIncident)
 	app.Post("/api/services/:id/image", auth, admin, s.handleUploadImage)
 	app.Delete("/api/services/:id/image", auth, admin, s.handleDeleteImage)
 	app.Put("/api/settings", auth, admin, s.handleUpdateSettings)
@@ -128,6 +138,11 @@ func (s *Server) routes() {
 	app.Delete("/api/users/:id", auth, admin, s.handleDeleteUser)
 	app.Get("/api/config/export", auth, admin, s.handleExport)
 	app.Post("/api/config/import", auth, admin, s.handleImport)
+	app.Get("/api/integrations", auth, admin, s.handleListIntegrations)
+	app.Post("/api/integrations", auth, admin, s.handleCreateIntegration)
+	app.Put("/api/integrations/:id", auth, admin, s.handleUpdateIntegration)
+	app.Delete("/api/integrations/:id", auth, admin, s.handleDeleteIntegration)
+	app.Post("/api/integrations/:id/test", auth, admin, s.handleTestIntegration)
 
 	// Images (public when public_dashboard is enabled, else authenticated).
 	app.Get("/images/:file", s.handleServeImage)
@@ -189,6 +204,12 @@ func (s *Server) scheduler() *monitor.Scheduler {
 	return s.sched
 }
 
+func (s *Server) dispatch() *notify.Dispatcher {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.dispatcher
+}
+
 func (s *Server) dir() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -232,10 +253,12 @@ func (s *Server) switchConfigDir(dir string) error {
 	s.scheduler().Stop()
 	s.mu.Lock()
 	oldDB := s.database
+	dispatcher := notify.NewDispatcher(newDB)
 	s.configDir = dir
 	s.database = newDB
 	s.cfg = cfg
-	s.sched = monitor.New(newDB)
+	s.sched = monitor.New(newDB, dispatcher)
+	s.dispatcher = dispatcher
 	sched := s.sched
 	s.mu.Unlock()
 

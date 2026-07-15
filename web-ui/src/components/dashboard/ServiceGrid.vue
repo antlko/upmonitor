@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import { GridLayout, GridItem } from 'grid-layout-plus'
 import ServiceCard from './ServiceCard.vue'
 import { useServicesStore } from '@/stores/services'
+import type { WidgetMode } from '@/types'
 
 interface GridItemData {
   i: string
@@ -19,6 +20,9 @@ const emit = defineEmits<{
   replaceImage: [id: string]
   generateIcon: [id: string]
   remove: [id: string]
+  setWidgetMode: [id: string, mode: WidgetMode]
+  dropImage: [id: string, file: File]
+  hover: [id: string, entering: boolean]
 }>()
 
 const layout = ref<GridItemData[]>([])
@@ -40,9 +44,13 @@ watch(
   () => buildLayout(),
 )
 
-function onLayoutUpdated(newLayout: GridItemData[]) {
+// Persist only layout changes the user actually made. `layout-updated` also
+// fires when the grid reflows itself for a narrower breakpoint, and saving that
+// would overwrite the stored desktop arrangement just because the window was
+// resized. GridItem's moved/resized fire only on a committed drag/resize.
+function onUserLayoutChange() {
   if (props.readonly) return
-  services.saveLayout(newLayout).catch(() => {})
+  services.saveLayout(layout.value).catch(() => {})
 }
 </script>
 
@@ -58,7 +66,6 @@ function onLayoutUpdated(newLayout: GridItemData[]) {
     :cols="{ lg: 12, md: 12, sm: 8, xs: 4, xxs: 2 }"
     :breakpoints="{ lg: 1200, md: 900, sm: 640, xs: 480, xxs: 0 }"
     :vertical-compact="true"
-    @layout-updated="onLayoutUpdated"
   >
     <GridItem
       v-for="item in layout"
@@ -70,15 +77,21 @@ function onLayoutUpdated(newLayout: GridItemData[]) {
       :h="item.h"
       :min-w="1"
       :min-h="2"
+      @moved="onUserLayoutChange"
+      @resized="onUserLayoutChange"
     >
       <ServiceCard
         v-if="services.getById(item.i)"
         :service="services.getById(item.i)!"
         :readonly="props.readonly"
+        linkable
         @edit="emit('edit', item.i)"
         @replace-image="emit('replaceImage', item.i)"
         @generate-icon="emit('generateIcon', item.i)"
         @remove="emit('remove', item.i)"
+        @set-widget-mode="(mode: WidgetMode) => emit('setWidgetMode', item.i, mode)"
+        @drop-image="(file: File) => emit('dropImage', item.i, file)"
+        @hover="(entering: boolean) => emit('hover', item.i, entering)"
       />
     </GridItem>
   </GridLayout>

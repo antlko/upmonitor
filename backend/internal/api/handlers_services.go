@@ -139,6 +139,8 @@ func (s *Server) handleDeleteService(c fiber.Ctx) error {
 	}
 	_ = image.Delete(config.ImagesPath(s.dir()), id)
 	_ = s.conn().DeleteServiceHistory(id)
+	_ = s.conn().DeleteServiceTLS(id)
+	_ = s.conn().DeleteServiceIncidents(id)
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
@@ -191,10 +193,27 @@ func (s *Server) handleCheckNow(c fiber.Ctx) error {
 
 type metricsResponse struct {
 	serviceDTO
-	Series []db.SeriesPoint `json:"series"`
+	Series        []db.SeriesPoint `json:"series"`
+	UptimeWindows uptimeWindowsDTO `json:"uptimeWindows"`
+	TLS           *tlsDTO          `json:"tls"`
 }
 
-// GET /api/services/:id/metrics?range=24h|7d → aggregates + time series.
+// rangeSince maps a ?range= value to a lookback window (default 24h).
+func rangeSince(now time.Time, r string) time.Time {
+	switch r {
+	case "7d":
+		return now.Add(-7 * 24 * time.Hour)
+	case "30d":
+		return now.Add(-30 * 24 * time.Hour)
+	case "365d":
+		return now.Add(-365 * 24 * time.Hour)
+	default:
+		return now.Add(-24 * time.Hour)
+	}
+}
+
+// GET /api/services/:id/metrics?range=24h|7d|30d|365d → aggregates, time series,
+// multi-window uptime and current TLS certificate info.
 func (s *Server) handleServiceMetrics(c fiber.Ctx) error {
 	id := c.Params("id")
 	svc := s.config().Find(id)
@@ -202,10 +221,7 @@ func (s *Server) handleServiceMetrics(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "service not found")
 	}
 	now := time.Now()
-	since := now.Add(-24 * time.Hour)
-	if c.Query("range") == "7d" {
-		since = now.Add(-7 * 24 * time.Hour)
-	}
+	since := rangeSince(now, c.Query("range"))
 	metrics, _ := s.conn().MetricsForAll(since.Unix(), 60)
 	series, err := s.conn().SeriesFor(id, since.Unix(), now.Unix(), 96)
 	if err != nil {
@@ -214,9 +230,18 @@ func (s *Server) handleServiceMetrics(c fiber.Ctx) error {
 	if series == nil {
 		series = []db.SeriesPoint{}
 	}
+
+	day := 24 * time.Hour
+	up7, _, _ := s.conn().UptimeSince(id, now.Add(-7*day).Unix())
+	up30, _, _ := s.conn().UptimeSince(id, now.Add(-30*day).Unix())
+	up365, _, _ := s.conn().UptimeSince(id, now.Add(-365*day).Unix())
+	tlsInfo, _ := s.conn().GetServiceTLS(id)
+
 	return c.JSON(metricsResponse{
-		serviceDTO: toServiceDTO(*svc, metrics[id]),
-		Series:     series,
+		serviceDTO:    toServiceDTO(*svc, metrics[id]),
+		Series:        series,
+		UptimeWindows: uptimeWindowsDTO{Days7: up7, Days30: up30, Days365: up365},
+		TLS:           toTLSDTO(tlsInfo),
 	})
 }
 

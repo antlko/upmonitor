@@ -17,6 +17,12 @@ export function formatUptime(pct: number): string {
   return `${pct.toFixed(2)}%`
 }
 
+/** Rounded mean of a latency history, or `null` when there is no data. */
+export function averageLatency(history: number[]): number | null {
+  if (history.length === 0) return null
+  return Math.round(history.reduce((sum, v) => sum + v, 0) / history.length)
+}
+
 /** Compact relative time, e.g. `12s ago`, `4m ago`, `2h ago`. */
 export function timeAgo(iso: string | null): string {
   if (!iso) return 'never'

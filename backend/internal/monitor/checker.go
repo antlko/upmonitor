@@ -17,6 +17,15 @@ type Result struct {
 	LatencyMs  *int
 	StatusCode *int
 	Error      string
+	TLS        *TLSInfo // populated for HTTPS responses with a presented certificate
+}
+
+// TLSInfo is the leaf-certificate metadata read from a successful TLS handshake.
+type TLSInfo struct {
+	NotBefore time.Time
+	NotAfter  time.Time
+	Issuer    string
+	Subject   string
 }
 
 // Check performs one HTTP request for svc and classifies the result.
@@ -45,6 +54,15 @@ func Check(ctx context.Context, client *http.Client, svc config.Service) Result 
 
 	code := resp.StatusCode
 	res := Result{LatencyMs: &latency, StatusCode: &code}
+	if resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
+		cert := resp.TLS.PeerCertificates[0]
+		res.TLS = &TLSInfo{
+			NotBefore: cert.NotBefore,
+			NotAfter:  cert.NotAfter,
+			Issuer:    certName(cert.Issuer.CommonName, cert.Issuer.String()),
+			Subject:   certName(cert.Subject.CommonName, cert.Subject.String()),
+		}
+	}
 	if statusMatches(code, svc.Check.ExpectedStatus) {
 		res.Status = db.StatusOnline
 	} else {
@@ -55,6 +73,15 @@ func Check(ctx context.Context, client *http.Client, svc config.Service) Result 
 		}
 	}
 	return res
+}
+
+// certName prefers the certificate CommonName, falling back to the full
+// distinguished name when the CN is empty.
+func certName(cn, full string) string {
+	if cn != "" {
+		return cn
+	}
+	return full
 }
 
 // statusMatches reports whether code is acceptable. An empty expected list

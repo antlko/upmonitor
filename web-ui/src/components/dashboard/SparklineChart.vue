@@ -16,12 +16,15 @@ const points = computed(() => {
   const range = max - min || 1
   const stepX = props.width / (vals.length - 1)
   const pad = 3
+  // A perfectly steady service has no spread; centre it instead of pinning the
+  // line to the floor of the chart.
+  const flat = max === min
   return vals.map(
     (v, i) =>
-      [i * stepX, props.height - pad - ((v - min) / range) * (props.height - pad * 2)] as [
-        number,
-        number,
-      ],
+      [
+        i * stepX,
+        flat ? props.height / 2 : props.height - pad - ((v - min) / range) * (props.height - pad * 2),
+      ] as [number, number],
   )
 })
 
