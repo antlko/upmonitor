@@ -16,7 +16,7 @@ settings:
   check:
     default_interval: 30 # seconds between checks (services may override)
     timeout: 10 # seconds before a check counts as failed
-    retention_days: 7 # metrics history older than this is deleted
+    retention_days: 30 # metrics history older than this is deleted
 
 services:
   - id: grafana # slug; also the image filename and metrics key

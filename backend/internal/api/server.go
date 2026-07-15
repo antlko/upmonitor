@@ -289,7 +289,7 @@ func (s *Server) runRetention() {
 	database := s.database
 	s.mu.RUnlock()
 	if days < 1 {
-		days = 7
+		days = config.DefaultRetentionDays
 	}
 	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour).Unix()
 	if n, err := database.DeleteOlderThan(cutoff); err != nil {

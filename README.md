@@ -8,7 +8,7 @@ A modern, minimal dashboard for keeping an eye on your web services. Add a URL,
 watch its status, response time and uptime in real time, and rearrange
 everything with drag‑and‑drop. One tiny container, one config file, zero fuss.
 
-[![Docker image](https://img.shields.io/badge/ghcr.io-anatolk%2Fupmonitor-2496ED?logo=docker&logoColor=white)](https://github.com/antlko/upmonitor/pkgs/container/upmonitor)
+[![Docker image](https://img.shields.io/badge/ghcr.io-antlko%2Fupmonitor-2496ED?logo=docker&logoColor=white)](https://github.com/antlko/upmonitor/pkgs/container/upmonitor)
 [![Made with Go + Vue](https://img.shields.io/badge/stack-Go%20%2B%20Vue%203-00ADD8?logo=go&logoColor=white)](#how-it-works)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 

@@ -104,6 +104,14 @@ const sparkColor = computed(
 function openService() {
   window.open(s.value.url, '_blank', 'noopener')
 }
+
+// Shared styling for the hover action buttons in the card's top-right corner.
+const actionBtn =
+  'no-drag flex size-7 cursor-pointer items-center justify-center rounded-md bg-card/80 text-muted-foreground opacity-0 outline-none backdrop-blur-sm transition-all hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/40'
+
+// Horizontal room the header must leave for those buttons so a long name
+// truncates before it reaches them (one button when read-only, two otherwise).
+const headerPad = computed(() => (props.readonly ? 'pr-8' : 'pr-16'))
 </script>
 
 <template>
@@ -125,11 +133,21 @@ function openService() {
     @dragleave.prevent="dragOver = false"
     @drop.prevent="onDrop"
   >
-    <!-- Actions menu (shared across modes) -->
-    <div v-if="!readonly" class="absolute right-1.5 top-1.5 z-10" @click.stop>
-      <DropdownMenu>
+    <!-- Hover actions (shared across modes): open the site, then the full menu.
+         The open shortcut stays available read-only; the menu does not. -->
+    <div class="absolute right-1.5 top-1.5 z-10 flex items-center gap-0.5" @click.stop>
+      <button
+        :class="cn(actionBtn, 'group-hover/card:opacity-100')"
+        aria-label="Open website"
+        title="Open website"
+        @pointerdown.stop
+        @click="openService"
+      >
+        <ArrowUpRight class="size-4" />
+      </button>
+      <DropdownMenu v-if="!readonly">
         <DropdownMenuTrigger
-          class="no-drag flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none transition-all hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/40 group-hover/card:opacity-100 data-[state=open]:bg-accent data-[state=open]:opacity-100"
+          :class="cn(actionBtn, 'group-hover/card:opacity-100 data-[state=open]:bg-accent data-[state=open]:opacity-100')"
           aria-label="Service actions"
           @pointerdown.stop
         >
@@ -189,15 +207,25 @@ function openService() {
       </div>
     </div>
 
-    <!-- Mode: icon + name -->
+    <!-- Mode: icon + name. The status dot rides on the icon (as in icon mode)
+         rather than sitting inline before the name, which both unifies the two
+         modes and gives a long name the card's full width. -->
     <div v-else-if="s.widget.mode === 'name'" class="flex h-full items-center gap-3 p-3.5">
-      <ServiceIcon :service="s" class="size-10 shrink-0" />
+      <div class="relative shrink-0">
+        <ServiceIcon :service="s" class="size-10" />
+        <span
+          class="absolute -bottom-0.5 -right-0.5 flex items-center justify-center rounded-full border-2 border-card bg-card p-px"
+        >
+          <StatusDot :status="s.status" :pulse="s.status === 'online'" />
+        </span>
+      </div>
       <div class="min-w-0 flex-1">
-        <div class="flex min-w-0 items-center gap-1.5">
-          <StatusDot :status="s.status" class="shrink-0" />
-          <span class="truncate text-sm font-semibold">{{ s.name }}</span>
-        </div>
-        <p class="mt-0.5 truncate text-xs text-muted-foreground">{{ prettyUrl(s.url) }}</p>
+        <span class="line-clamp-2 text-sm font-semibold leading-snug" :title="s.name">
+          {{ s.name }}
+        </span>
+        <p class="mt-0.5 truncate text-xs text-muted-foreground" :title="prettyUrl(s.url)">
+          {{ prettyUrl(s.url) }}
+        </p>
       </div>
     </div>
 
@@ -205,9 +233,13 @@ function openService() {
     <div v-else class="flex h-full flex-col p-3.5 @[200px]:p-4">
       <header class="flex min-w-0 items-center gap-2.5 @[200px]:gap-3">
         <ServiceIcon :service="s" class="size-9 shrink-0 @[200px]:size-10" />
-        <div class="min-w-0 flex-1 pr-7">
-          <span class="block truncate text-sm font-semibold leading-tight">{{ s.name }}</span>
-          <p class="mt-0.5 truncate text-xs text-muted-foreground">{{ prettyUrl(s.url) }}</p>
+        <div :class="cn('min-w-0 flex-1', headerPad)">
+          <span class="block truncate text-sm font-semibold leading-tight" :title="s.name">
+            {{ s.name }}
+          </span>
+          <p class="mt-0.5 truncate text-xs text-muted-foreground" :title="prettyUrl(s.url)">
+            {{ prettyUrl(s.url) }}
+          </p>
         </div>
       </header>
 

@@ -110,7 +110,7 @@ async function postComment() {
 <template>
   <div class="mx-auto max-w-[820px] px-6 py-6 lg:px-8">
     <button
-      class="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      class="mb-4 inline-flex cursor-pointer items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
       @click="router.push('/incidents')"
     >
       <ArrowLeft class="size-4" />

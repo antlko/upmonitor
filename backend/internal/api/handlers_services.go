@@ -18,7 +18,7 @@ var errServiceNotFound = errors.New("service not found")
 func (s *Server) retentionWindow(cfg *config.Config) int64 {
 	days := cfg.Settings.Check.RetentionDays
 	if days < 1 {
-		days = 7
+		days = config.DefaultRetentionDays
 	}
 	return time.Now().Add(-time.Duration(days) * 24 * time.Hour).Unix()
 }

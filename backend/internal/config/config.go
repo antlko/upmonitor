@@ -21,9 +21,13 @@ const (
 	// CurrentVersion is the schema version written to new config files.
 	CurrentVersion = 1
 
+	// DefaultRetentionDays is how long metrics history is kept when the config
+	// does not say otherwise. Exported so the api layer's fallbacks cannot drift
+	// from the value written into new configs.
+	DefaultRetentionDays = 30
+
 	defaultInterval = 30
 	defaultTimeout  = 10
-	defaultReten    = 7
 	minInterval     = 5
 	minTimeout      = 1
 )
@@ -95,7 +99,7 @@ func Default() *Config {
 			Check: CheckDefaults{
 				DefaultInterval: defaultInterval,
 				Timeout:         defaultTimeout,
-				RetentionDays:   defaultReten,
+				RetentionDays:   DefaultRetentionDays,
 			},
 		},
 		Services: []Service{},
@@ -131,7 +135,7 @@ func (c *Config) normalize() {
 		s.Check.Timeout = defaultTimeout
 	}
 	if s.Check.RetentionDays == 0 {
-		s.Check.RetentionDays = defaultReten
+		s.Check.RetentionDays = DefaultRetentionDays
 	}
 	for i := range c.Services {
 		svc := &c.Services[i]

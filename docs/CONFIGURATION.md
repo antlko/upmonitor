@@ -25,7 +25,7 @@ services: [ ... ] # monitored services
 | `theme`                | `dark`/`light`  | `dark`  | Default interface theme.                                        |
 | `check.default_interval` | int (seconds) | `30`    | Fallback check interval when a service doesn't set one.         |
 | `check.timeout`        | int (seconds)   | `10`    | Fallback request timeout.                                       |
-| `check.retention_days` | int (days)      | `7`     | Metrics history is trimmed to this window (hourly).             |
+| `check.retention_days` | int (days)      | `30`     | Metrics history is trimmed to this window (hourly).             |
 
 ## `services`
 

@@ -62,7 +62,7 @@ const collapsed = computed(() => ui.sidebarCollapsed)
           <button
             :class="
               cn(
-                'ml-auto flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40',
+                'ml-auto flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40',
                 collapsed && 'absolute -right-3 top-4 border border-border bg-card shadow-elevation-low hover:bg-card',
               )
             "
