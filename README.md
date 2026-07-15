@@ -17,6 +17,8 @@ everything with drag‑and‑drop. One tiny container, one config file, zero fus
 
 </div>
 
+<img width="1506" height="745" alt="image" src="https://github.com/user-attachments/assets/79997a08-e966-41f6-894a-42c49e0be72f" />
+
 ---
 
 ## Why upmonitor?
