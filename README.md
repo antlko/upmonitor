@@ -30,15 +30,23 @@ grafana clone — while still doing the real work:
 - 🧩 **Drag‑and‑drop dashboard** — resize widgets and rearrange them; positions
   are saved to `config.yaml`.
 - 🎛️ **Three widget modes** — icon only, icon + name, or a mini dashboard with
-  response time, uptime and a sparkline.
+  response time, uptime and a sparkline. Switch mode in one click from the card.
+- 🔔 **Incidents that log themselves** — when a service goes down an incident
+  opens automatically and closes when it recovers, with start/end times and a
+  duration. Add your own for planned work, and comment to keep the team in sync.
+- 📣 **Get told about it** — send incidents to **Telegram, Slack, email or any
+  webhook**. Add a channel, hit *Send test*, done.
+- 🔍 **Per‑service detail** — uptime over 7/30/365 days, a response‑time chart,
+  recent incidents, and **SSL certificate issuer and expiry** with a warning as
+  the date approaches.
 - 📈 **Metrics that matter** — uptime %, response time, error count and last
-  success, kept for 7 days (configurable) in SQLite and trimmed automatically.
+  success, kept for 30 days (configurable) in SQLite and trimmed automatically.
 - 🎨 **Instant icons** — generate a crisp, unique icon for any service on‑device
   (no external AI), or upload your own — auto‑optimized to WebP in your browser.
 - 👥 **Share it** — invite friends as **admin** or **read‑only**, or flip on a
   public read‑only status page.
-- 💾 **Portable** — one YAML file plus images; export/import as a `.zip` with an
-  automatic backup on restore.
+- 💾 **Portable** — one YAML file plus images, incidents and integrations;
+  export/import as a `.zip` with an automatic backup on restore.
 - 🌗 **Dark mode first**, fully responsive, and one small binary that serves both
   the API and the UI.
 
@@ -127,8 +135,11 @@ Everything lives in one **config directory** (mounted at `/config` in Docker):
 ├── config.yaml       # services + settings (managed by the UI, editable by hand)
 ├── images/           # service icons (<id>.webp)
 ├── backups/          # automatic snapshots created before an import
-└── upmonitor.db      # users, sessions and metrics history (SQLite)
+└── upmonitor.db      # users, history, incidents, integrations (SQLite)
 ```
+
+The database schema is created and upgraded **automatically on start** — there is
+no migration step to run when you update the image.
 
 ### Ports & volumes
 
@@ -186,7 +197,9 @@ The result is tiny, fast and easy to run on anything from a NAS to a Raspberry P
 ## Local development
 
 See [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) to run the Vue dev server and Go
-backend together, and [`docs/API.md`](docs/API.md) for the REST API.
+backend together, [`docs/API.md`](docs/API.md) for the REST API, and
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how it behaves under the hood
+(incidents, notifications, the dashboard grid, roles).
 
 ## License
 

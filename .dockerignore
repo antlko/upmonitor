@@ -4,6 +4,8 @@
 .github
 .idea
 .vscode
+.idea
+.claude
 
 # Node
 **/node_modules
