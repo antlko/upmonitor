@@ -79,10 +79,12 @@ backend/
   internal/
     config/              # config.yaml types, load/save/validate (atomic)
     state/               # bootstrap state.json (active config dir)
-    db/                  # SQLite: users, sessions, checks, metrics
+    db/                  # SQLite: users, sessions, checks, tls, incidents, integrations
       migrations/        #   goose *.sql migrations (embedded, run on Open)
     auth/                # bcrypt + session tokens
-    monitor/             # HTTP checker + per-service ticker scheduler
+    monitor/             # HTTP checker (+TLS cert) + per-service ticker scheduler
+    incident/            # opens/resolves incidents from status transitions
+    notify/              # Dispatcher + telegram/slack/email/webhook senders
     image/               # WebP validate/store/serve
     archive/             # export/import zip (validate → backup → apply)
     logger/              # slog JSON logger setup
@@ -91,12 +93,18 @@ backend/
 web-ui/
   src/
     api/                 # typed REST client
-    components/          # ui (shadcn-vue), layout, dashboard, services, common
+    components/          # ui (shadcn-vue), layout, dashboard, services,
+                         #   incidents, integrations, common
     composables/         # useServicesPolling
-    stores/              # pinia: auth, services, settings, ui
-    views/               # Dashboard, Resources, Settings, CronJobs, Setup, Login, …
+    stores/              # pinia: auth, services, incidents, integrations, settings, ui
+    views/               # Dashboard, ServiceDetail, Incidents(+Detail), Integrations,
+                         #   Resources, Settings, Setup, Login, Public, NotFound
     lib/                 # icon-generator, image (canvas→WebP), prng, format
 ```
+
+Import direction worth remembering: `monitor → incident → {db, notify}`.
+`incident` must never import `monitor` (cycle) — see
+[ARCHITECTURE.md §4](ARCHITECTURE.md#4-incident-lifecycle).
 
 ## Notes
 
