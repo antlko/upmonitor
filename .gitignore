@@ -21,3 +21,11 @@ web-ui/dist/
 # --- OS / misc ---
 .DS_Store
 *.log
+
+# Git / editor
+.git
+.gitignore
+.github
+.vscode
+.idea
+.claude

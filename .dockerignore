@@ -2,8 +2,6 @@
 .git
 .gitignore
 .github
-.idea/*
-.idea
 .vscode
 .idea
 .claude
