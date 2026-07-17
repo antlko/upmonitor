@@ -17,10 +17,15 @@ export function formatUptime(pct: number): string {
   return `${pct.toFixed(2)}%`
 }
 
-/** Rounded mean of a latency history, or `null` when there is no data. */
-export function averageLatency(history: number[]): number | null {
-  if (history.length === 0) return null
-  return Math.round(history.reduce((sum, v) => sum + v, 0) / history.length)
+/**
+ * Rounded mean of a latency history, or `null` when nothing succeeded. Offline
+ * checks are `null` in the history and are skipped rather than counted as zero,
+ * which would drag the average down during an outage.
+ */
+export function averageLatency(history: (number | null)[]): number | null {
+  const up = history.filter((v): v is number => v != null)
+  if (up.length === 0) return null
+  return Math.round(up.reduce((sum, v) => sum + v, 0) / up.length)
 }
 
 /** Compact relative time, e.g. `12s ago`, `4m ago`, `2h ago`. */

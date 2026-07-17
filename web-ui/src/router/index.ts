@@ -2,7 +2,7 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 /**
- * Routes. `meta.bare` pages (auth/setup/public) render without the app shell;
+ * Routes. `meta.bare` pages (auth/setup) render without the app shell;
  * everything else renders inside the sidebar + topbar layout.
  * Auth guards will be added when the backend is wired.
  */
@@ -62,12 +62,6 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'Sign in', bare: true },
   },
   {
-    path: '/public',
-    name: 'public',
-    component: () => import('@/views/PublicDashboardView.vue'),
-    meta: { title: 'Status', bare: true, public: true },
-  },
-  {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
     component: () => import('@/views/NotFoundView.vue'),
@@ -91,9 +85,6 @@ router.beforeEach(async (to) => {
   if (!auth.ready) {
     await auth.bootstrap()
   }
-
-  // The public status page is always reachable (it self-gates via the API).
-  if (to.meta.public) return true
 
   if (auth.needsSetup) {
     return to.name === 'setup' ? true : { name: 'setup' }

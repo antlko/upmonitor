@@ -22,7 +22,6 @@ func (s *Server) handleUpdateSettings(c fiber.Ctx) error {
 		return err
 	}
 	err := s.updateConfig(func(cfg *config.Config) error {
-		cfg.Settings.PublicDashboard = in.PublicDashboard
 		if in.DefaultWidgetMode != "" {
 			cfg.Settings.DefaultWidgetMode = in.DefaultWidgetMode
 		}

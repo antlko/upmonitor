@@ -217,8 +217,19 @@ those narrow coordinates as the one true layout. Fixing that properly needs
 per-breakpoint layouts — a schema change.
 
 Saving flows `ServiceGrid` → `services.saveLayout()` → `PATCH /api/services/layout`
-(bulk, `[{id,x,y,w,h,mode?}]`). The same endpoint carries `mode`, which is why the
-widget-mode switcher can reuse `services.setWidgetMode()`.
+(bulk, `[{id,x,y,w,h,mode?,chart?}]`). The same endpoint carries `mode` and
+`chart`, which is why `services.setWidgetMode()` / `setChartType()` can reuse it.
+Both are only applied server-side when non-empty, so a drag-save doesn't reset
+them — but `x/y/w/h` are assigned unconditionally, so those two actions must
+re-send the service's current position or they'd zero the layout.
+
+**Dragging must not select text.** interact.js (under `grid-layout-plus`)
+deliberately skips `preventDefault` on pointerdown and expects CSS to suppress
+selection; the library's own `user-select: none` only lands on
+`.vgl-item--dragging`, by which point the browser has anchored a selection — and
+never on the neighbours the pointer sweeps across. `ServiceGrid` therefore sets
+`select-none` on the whole grid whenever it's interactive (not in `readonly`,
+where nothing is draggable and text stays selectable).
 
 ### Widget modes
 
@@ -230,10 +241,10 @@ Card interaction model — three distinct targets, don't conflate them:
 
 - **card body click** → in-app detail page (`/services/:id`), gated on the
   `linkable` prop, with a 4px drag threshold so ending a drag doesn't navigate;
-- **↗ hover button** → the external monitored site (available read-only too, so
-  the public dashboard keeps the shortcut);
-- **⋯ hover menu** → open / widget mode / edit / replace image / generate icon /
-  delete (admin only).
+- **↗ hover button** → the external monitored site (available to read-only users
+  too);
+- **⋯ hover menu** → open / widget mode / chart style / edit / replace image /
+  generate icon / delete (admin only).
 
 Because the actions overlay the top-right corner, `dashboard` mode reserves
 horizontal room (`headerPad`) so a long name truncates *before* reaching them.
@@ -256,16 +267,13 @@ Two roles only: `admin` and `readonly` (a CHECK constraint on `users.role`).
 | `/settings` | `settings` | **admin** |
 | `/setup` | `setup` | first-run only (`meta.bare`) |
 | `/login` | `login` | anonymous (`meta.bare`) |
-| `/public` | `public` | anonymous, self-gates via API (`meta.public`) |
 | `/:pathMatch(.*)*` | `not-found` | — (`meta.bare`) |
 
-`meta.bare` renders without the sidebar/topbar shell. `meta.public` skips the
-guard entirely.
+`meta.bare` renders without the sidebar/topbar shell.
 
-The guard order in `router/index.ts` matters: bootstrap auth → let `public`
-through → force `/setup` if `needsSetup` → bounce `/setup` once set up → force
-`/login` if anonymous → bounce `/login` if signed in → block `readonly` from
-`adminOnly`.
+The guard order in `router/index.ts` matters: bootstrap auth → force `/setup` if
+`needsSetup` → bounce `/setup` once set up → force `/login` if anonymous →
+bounce `/login` if signed in → block `readonly` from `adminOnly`.
 
 **Adding a page needs three edits in sync:** the route, the `adminOnly` set (if
 restricted), and the nav entry in `AppSidebar.vue`. Route-level gating is UX
@@ -341,7 +349,9 @@ Two behaviours worth knowing:
 | --- | --- |
 | New API endpoint | route in `api/server.go` → handler in `api/handlers_*.go` → DTO in `api/dto.go` → client in `web-ui/src/api/index.ts` → type in `web-ui/src/types/index.ts` → document in [API.md](API.md) |
 | New DB table/column | new `db/migrations/NNNNN_*.sql` (never edit an applied one) → queries in `db/<table>.go` |
-| New config field | `config/config.go` struct + defaults + validation → `config/clone.go` → [CONFIGURATION.md](CONFIGURATION.md) |
+| New config field | `config/config.go` struct + `Default()` + `normalize()` + `Validate()` → `config/clone.go` **only if the field is a reference type** (slice/map/pointer — value types ride along in `Clone`'s `copy`) → [CONFIGURATION.md](CONFIGURATION.md) |
+| New per-service preference | follow `widget.mode` / `chart.type`: config field → `serviceDTO` → `layoutItem` + an `if it.X != ""` guard in `handleUpdateLayout` → a store action that re-sends the current `x/y/w/h` (the handler assigns layout unconditionally) → card ⋯ menu |
+| Change the response-time chart | `services/ResponseTimeChart.vue` (detail) / `dashboard/SparklineChart.vue` (card) — both hand-rolled SVG, no chart library. Bucketing is server-side: `api.chooseBucket` + `db.SeriesFor` |
 | Change monitoring/incident behaviour | `monitor/scheduler.go` (when) / `incident/incident.go` (what) |
 | New notification channel | see §5 |
 | New page | route + `adminOnly` + `AppSidebar.vue` nav + API-side `auth, admin` |

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { Plus, Send, MessageSquare, Mail, Webhook, LoaderCircle, Bell, MoreHorizontal, Pencil, Trash2, SendHorizontal } from '@lucide/vue'
+import { Plus, Send, MessageSquare, Mail, Webhook, LoaderCircle, Plug, MoreHorizontal, Pencil, Trash2, SendHorizontal } from '@lucide/vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import IntegrationFormDialog from '@/components/integrations/IntegrationFormDialog.vue'
@@ -116,7 +116,7 @@ async function onTest(it: Integration) {
 
     <EmptyState
       v-else-if="store.integrations.length === 0"
-      :icon="Bell"
+      :icon="Plug"
       title="No integrations yet"
       description="Connect Telegram, Slack, email or a custom webhook to get notified about incidents."
       class="mt-10"

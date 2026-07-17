@@ -3,7 +3,7 @@ import { ref, watch } from 'vue'
 import { GridLayout, GridItem } from 'grid-layout-plus'
 import ServiceCard from './ServiceCard.vue'
 import { useServicesStore } from '@/stores/services'
-import type { WidgetMode } from '@/types'
+import type { ChartType, WidgetMode } from '@/types'
 
 interface GridItemData {
   i: string
@@ -21,6 +21,7 @@ const emit = defineEmits<{
   generateIcon: [id: string]
   remove: [id: string]
   setWidgetMode: [id: string, mode: WidgetMode]
+  setChartType: [id: string, type: ChartType]
   dropImage: [id: string, file: File]
   hover: [id: string, entering: boolean]
 }>()
@@ -55,8 +56,14 @@ function onUserLayoutChange() {
 </script>
 
 <template>
+  <!-- select-none while interactive: interact.js does not preventDefault the
+       pointerdown (it delegates to CSS), and the library's own user-select rule
+       only lands on .vgl-item--dragging — by then the browser has already
+       anchored a selection, and neighbouring cards never get the class at all,
+       so a drag sweeps a highlight across them. -->
   <GridLayout
     v-model:layout="layout"
+    :class="{ 'select-none': !props.readonly }"
     :col-num="12"
     :row-height="68"
     :margin="[16, 16]"
@@ -90,6 +97,7 @@ function onUserLayoutChange() {
         @generate-icon="emit('generateIcon', item.i)"
         @remove="emit('remove', item.i)"
         @set-widget-mode="(mode: WidgetMode) => emit('setWidgetMode', item.i, mode)"
+        @set-chart-type="(type: ChartType) => emit('setChartType', item.i, type)"
         @drop-image="(file: File) => emit('dropImage', item.i, file)"
         @hover="(entering: boolean) => emit('hover', item.i, entering)"
       />

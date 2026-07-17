@@ -16,7 +16,6 @@ import PageHeader from '@/components/layout/PageHeader.vue'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -64,14 +63,6 @@ function errMsg(e: unknown) {
   return e instanceof ApiError ? e.message : 'Something went wrong'
 }
 
-async function setPublic(value: boolean) {
-  try {
-    await settings.update({ publicDashboard: value })
-    toast.success(value ? 'Public dashboard enabled' : 'Public dashboard disabled')
-  } catch (e) {
-    toast.error(errMsg(e))
-  }
-}
 async function setDefaultMode(value: WidgetMode) {
   try {
     await settings.update({ defaultWidgetMode: value })
@@ -156,20 +147,6 @@ async function removeUser(id: number, name: string) {
 
       <!-- General -->
       <TabsContent value="general" class="grid gap-3">
-        <div class="flex items-center justify-between gap-4 rounded-xl border border-border bg-card p-4">
-          <div class="min-w-0">
-            <p class="text-sm font-medium">Public dashboard</p>
-            <p class="mt-0.5 text-xs text-muted-foreground">
-              Allow anyone to view a read-only dashboard at
-              <code class="rounded bg-muted px-1 py-0.5 text-[11px]">/public</code> without signing in.
-            </p>
-          </div>
-          <Switch
-            :model-value="settings.settings.publicDashboard"
-            @update:model-value="setPublic"
-          />
-        </div>
-
         <div class="flex items-center justify-between gap-4 rounded-xl border border-border bg-card p-4">
           <div class="min-w-0">
             <p class="text-sm font-medium">Appearance</p>

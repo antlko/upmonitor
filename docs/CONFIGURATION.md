@@ -24,7 +24,6 @@ services: [ ... ] # monitored services
 
 | Key                    | Type            | Default | Description                                                     |
 | ---------------------- | --------------- | ------- | --------------------------------------------------------------- |
-| `public_dashboard`     | bool            | `false` | Expose a read-only dashboard at `/public` with no sign-in.      |
 | `default_widget_mode`  | `icon`/`name`/`dashboard` | `name` | Widget mode used for newly added services.            |
 | `theme`                | `dark`/`light`  | `dark`  | Default interface theme.                                        |
 | `check.default_interval` | int (seconds) | `30`    | Fallback check interval when a service doesn't set one.         |
@@ -47,6 +46,8 @@ Each entry defines one monitored endpoint.
     expected_status: [200] # accepted status codes; empty ⇒ any 2xx is "online"
   widget:
     mode: dashboard # icon | name | dashboard
+  chart:
+    type: line # line | bars
   layout: { x: 0, y: 0, w: 3, h: 4 } # grid position (12 columns) and size
 ```
 
@@ -69,6 +70,20 @@ How the card renders on the dashboard:
 | `icon` | icon with a status badge | `2×2` |
 | `name` | icon + name + URL (name wraps to 2 lines) | `2×2` |
 | `dashboard` | status pill, response, uptime, sparkline | `3×4` |
+
+### `chart.type`
+
+How this service's response-time history is drawn — on both its dashboard
+sparkline (`dashboard` mode only) and its detail page. Defaults to `line`.
+
+| Type | Draws |
+| --- | --- |
+| `line` | a line over a min–max range, so small variations stay visible |
+| `bars` | columns from a zero baseline, so heights compare honestly |
+
+Outages read the same in both: periods with no successful check turn red, and
+the line breaks rather than joining across them. It is set from a card's ⋯ menu
+or from the detail page, and is per service — there is no instance-wide default.
 
 Changeable in one click from the card's `⋯` menu (it rides along with the layout
 endpoint), or in the add/edit service form.

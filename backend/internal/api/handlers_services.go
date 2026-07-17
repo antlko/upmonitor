@@ -145,15 +145,18 @@ func (s *Server) handleDeleteService(c fiber.Ctx) error {
 }
 
 type layoutItem struct {
-	ID   string `json:"id"`
-	X    int    `json:"x"`
-	Y    int    `json:"y"`
-	W    int    `json:"w"`
-	H    int    `json:"h"`
-	Mode string `json:"mode"`
+	ID    string `json:"id"`
+	X     int    `json:"x"`
+	Y     int    `json:"y"`
+	W     int    `json:"w"`
+	H     int    `json:"h"`
+	Mode  string `json:"mode"`
+	Chart string `json:"chart"`
 }
 
-// PATCH /api/services/layout → bulk-save grid positions and widget modes.
+// PATCH /api/services/layout → bulk-save grid positions, widget modes and chart
+// styles. Mode and chart are only applied when set, so a plain layout save (the
+// common case, on every drag) does not reset them.
 func (s *Server) handleUpdateLayout(c fiber.Ctx) error {
 	var items []layoutItem
 	if err := decode(c, &items); err != nil {
@@ -168,6 +171,9 @@ func (s *Server) handleUpdateLayout(c fiber.Ctx) error {
 			svc.Layout = config.Layout{X: it.X, Y: it.Y, W: it.W, H: it.H}
 			if it.Mode != "" {
 				svc.Widget.Mode = it.Mode
+			}
+			if it.Chart != "" {
+				svc.Chart.Type = it.Chart
 			}
 		}
 		return nil
@@ -194,13 +200,21 @@ func (s *Server) handleCheckNow(c fiber.Ctx) error {
 type metricsResponse struct {
 	serviceDTO
 	Series        []db.SeriesPoint `json:"series"`
+	From          int64            `json:"from"`
+	To            int64            `json:"to"`
+	BucketSeconds int64            `json:"bucketSeconds"`
 	UptimeWindows uptimeWindowsDTO `json:"uptimeWindows"`
 	TLS           *tlsDTO          `json:"tls"`
 }
 
-// rangeSince maps a ?range= value to a lookback window (default 24h).
+// rangeSince maps a ?range= value to a lookback window (default 24h). "365d" is
+// no longer offered as a tab but stays accepted — it is a documented API value.
 func rangeSince(now time.Time, r string) time.Time {
 	switch r {
+	case "1h":
+		return now.Add(-time.Hour)
+	case "6h":
+		return now.Add(-6 * time.Hour)
 	case "7d":
 		return now.Add(-7 * 24 * time.Hour)
 	case "30d":
@@ -212,8 +226,34 @@ func rangeSince(now time.Time, r string) time.Time {
 	}
 }
 
-// GET /api/services/:id/metrics?range=24h|7d|30d|365d → aggregates, time series,
-// multi-window uptime and current TLS certificate info.
+// targetPoints is roughly how many buckets a chart wants across any range —
+// enough to show shape, few enough to stay legible and cheap to send.
+const targetPoints = 96
+
+// bucketLadder holds the bucket widths a series may be downsampled to. Every
+// range divides one of these exactly, so no bucket straddles the window edge.
+var bucketLadder = []int64{30, 60, 300, 900, 1800, 3600, 7200, 28800}
+
+// chooseBucket picks a bucket width for a span, in seconds. It must be at least
+// span/targetPoints (or the payload balloons) and at least the service's check
+// interval — a bucket narrower than the interval leaves most buckets empty and
+// renders as a comb. A 5-minute-interval service over 1h therefore gets 12 fat
+// buckets rather than 98 mostly-empty ones.
+func chooseBucket(span int64, interval int) int64 {
+	min := span / targetPoints
+	if int64(interval) > min {
+		min = int64(interval)
+	}
+	for _, b := range bucketLadder {
+		if b >= min {
+			return b
+		}
+	}
+	return bucketLadder[len(bucketLadder)-1]
+}
+
+// GET /api/services/:id/metrics?range=1h|6h|24h|7d|30d|365d → aggregates, time
+// series, multi-window uptime and current TLS certificate info.
 func (s *Server) handleServiceMetrics(c fiber.Ctx) error {
 	id := c.Params("id")
 	svc := s.config().Find(id)
@@ -222,8 +262,9 @@ func (s *Server) handleServiceMetrics(c fiber.Ctx) error {
 	}
 	now := time.Now()
 	since := rangeSince(now, c.Query("range"))
+	bucket := chooseBucket(now.Unix()-since.Unix(), svc.Check.Interval)
 	metrics, _ := s.conn().MetricsForAll(since.Unix(), 60)
-	series, err := s.conn().SeriesFor(id, since.Unix(), now.Unix(), 96)
+	series, err := s.conn().SeriesFor(id, since.Unix(), now.Unix(), bucket)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "could not load metrics")
 	}
@@ -240,6 +281,9 @@ func (s *Server) handleServiceMetrics(c fiber.Ctx) error {
 	return c.JSON(metricsResponse{
 		serviceDTO:    toServiceDTO(*svc, metrics[id]),
 		Series:        series,
+		From:          since.Unix(),
+		To:            now.Unix(),
+		BucketSeconds: bucket,
 		UptimeWindows: uptimeWindowsDTO{Days7: up7, Days30: up30, Days365: up365},
 		TLS:           toTLSDTO(tlsInfo),
 	})

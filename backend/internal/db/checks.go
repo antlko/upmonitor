@@ -15,7 +15,9 @@ type ServiceMetrics struct {
 	ErrorCount  int
 	LastCheck   *int64
 	LastSuccess *int64
-	History     []int
+	// History is the recent check latencies for the sparkline, chronological.
+	// A nil entry means that check was offline, not that data is missing.
+	History []*int
 }
 
 // SeriesPoint is one bucketed sample for the metrics time series.
@@ -61,7 +63,7 @@ func (db *DB) MetricsForAll(since int64, histLimit int) (map[string]*ServiceMetr
 			return nil, err
 		}
 		t := ts
-		out[sid] = &ServiceMetrics{Status: status, LatencyMs: latency, LastCheck: &t, History: []int{}}
+		out[sid] = &ServiceMetrics{Status: status, LatencyMs: latency, LastCheck: &t, History: []*int{}}
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -89,7 +91,7 @@ func (db *DB) MetricsForAll(since int64, histLimit int) (map[string]*ServiceMetr
 		}
 		m := out[sid]
 		if m == nil {
-			m = &ServiceMetrics{Status: StatusUnknown, History: []int{}}
+			m = &ServiceMetrics{Status: StatusUnknown, History: []*int{}}
 			out[sid] = m
 		}
 		if total > 0 {
@@ -103,49 +105,59 @@ func (db *DB) MetricsForAll(since int64, histLimit int) (map[string]*ServiceMetr
 		return nil, err
 	}
 
-	// 3) Recent online latencies per service for sparklines (chronological).
+	// 3) Recent checks per service for sparklines (chronological). Offline checks
+	// are included so the sparkline can show an outage; they contribute a nil
+	// rather than their latency, because an offline check often still has one (a
+	// fast 500) and charting it would draw a healthy-looking line through a
+	// failure. Same rule as SeriesFor's `CASE WHEN status = 'online'`.
 	rows, err = db.Query(`
-		SELECT service_id, latency_ms FROM (
-			SELECT service_id, latency_ms, ts,
+		SELECT service_id, status, latency_ms FROM (
+			SELECT service_id, status, latency_ms, ts,
 			       ROW_NUMBER() OVER (PARTITION BY service_id ORDER BY ts DESC) AS rn
 			FROM checks
-			WHERE ts >= ? AND status = 'online' AND latency_ms IS NOT NULL
+			WHERE ts >= ?
 		) WHERE rn <= ? ORDER BY service_id, ts ASC`, since, histLimit)
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
-		var sid string
-		var latency int
-		if err := rows.Scan(&sid, &latency); err != nil {
+		var sid, status string
+		var latency *int
+		if err := rows.Scan(&sid, &status, &latency); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		if m := out[sid]; m != nil {
-			m.History = append(m.History, latency)
+		m := out[sid]
+		if m == nil {
+			continue
 		}
+		if status != StatusOnline {
+			latency = nil
+		}
+		m.History = append(m.History, latency)
 	}
 	rows.Close()
 	return out, rows.Err()
 }
 
-// SeriesFor returns a bucketed latency/error time series for one service,
-// downsampled to at most `buckets` points across [since, now].
-func (db *DB) SeriesFor(serviceID string, since, now int64, buckets int) ([]SeriesPoint, error) {
-	span := now - since
-	if span < 1 {
-		span = 1
-	}
-	bucket := span / int64(buckets)
-	if bucket < 1 {
-		bucket = 1
+// SeriesFor returns a latency/error time series for one service over
+// [since, now], downsampled into fixed `bucketSeconds`-wide buckets aligned to
+// the epoch. Buckets containing no checks produce no point at all, and a bucket
+// whose checks were all offline yields a nil AvgLatency — callers must treat
+// both as breaks rather than drawing through them.
+//
+// The caller picks the bucket width (see api.chooseBucket) because it depends on
+// the service's check interval, which this layer doesn't know about.
+func (db *DB) SeriesFor(serviceID string, since, now, bucketSeconds int64) ([]SeriesPoint, error) {
+	if bucketSeconds < 1 {
+		bucketSeconds = 1
 	}
 	rows, err := db.Query(`
 		SELECT (ts / ?) * ? AS b,
 		       AVG(CASE WHEN status = 'online' THEN latency_ms END) AS avg_lat,
 		       SUM(CASE WHEN status = 'offline' THEN 1 ELSE 0 END) AS errs
-		FROM checks WHERE service_id = ? AND ts >= ?
-		GROUP BY b ORDER BY b ASC`, bucket, bucket, serviceID, since)
+		FROM checks WHERE service_id = ? AND ts >= ? AND ts <= ?
+		GROUP BY b ORDER BY b ASC`, bucketSeconds, bucketSeconds, serviceID, since, now)
 	if err != nil {
 		return nil, err
 	}

@@ -45,8 +45,7 @@ grafana clone — while still doing the real work:
   success, kept for 30 days (configurable) in SQLite and trimmed automatically.
 - 🎨 **Instant icons** — generate a crisp, unique icon for any service on‑device
   (no external AI), or upload your own — auto‑optimized to WebP in your browser.
-- 👥 **Share it** — invite friends as **admin** or **read‑only**, or flip on a
-  public read‑only status page.
+- 👥 **Share it** — invite friends as **admin** or **read‑only**.
 - 💾 **Portable** — one YAML file plus images, incidents and integrations;
   export/import as a `.zip` with an automatic backup on restore.
 - 🌗 **Dark mode first**, fully responsive, and one small binary that serves both
@@ -171,12 +170,10 @@ A commented reference config lives at
 current config into `backups/`, then applies the new one — so a restore is
 always safe.
 
-### Roles & public access
+### Roles
 
 - **Admin** — full control (services, users, settings).
 - **Read‑only** — can view the dashboard and metrics, nothing else.
-- **Public dashboard** — when enabled in Settings, anyone can view a read‑only
-  board at **`/public`** without signing in.
 
 ---
 

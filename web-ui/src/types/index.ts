@@ -7,6 +7,9 @@ export type ServiceStatus = 'online' | 'offline' | 'unknown'
 
 export type WidgetMode = 'icon' | 'name' | 'dashboard'
 
+/** How a service's response-time history is drawn, on both the card and the detail page. */
+export type ChartType = 'line' | 'bars'
+
 export type UserRole = 'admin' | 'readonly'
 
 /** Grid position of a service card (maps to grid-layout-plus item + config.yaml `layout`). */
@@ -33,6 +36,7 @@ export interface Service {
   icon: string | null
   check: ServiceCheck
   widget: { mode: WidgetMode }
+  chart: { type: ChartType }
   layout: WidgetLayout
   // Runtime state (from the latest check + aggregates; mocked for now).
   status: ServiceStatus
@@ -41,10 +45,19 @@ export interface Service {
   errorCount: number
   lastCheck: string | null // ISO timestamp
   lastSuccess: string | null // ISO timestamp
-  latencyHistory: number[] // recent latencies for the sparkline
+  /**
+   * Recent check latencies for the sparkline, chronological. `null` means that
+   * check was **offline** — not that the reading is missing.
+   */
+  latencyHistory: (number | null)[]
 }
 
-/** One bucketed point of the response-time / error time series. */
+/**
+ * One bucketed point of the response-time / error time series.
+ * `avgLatency: null` means no check succeeded in this bucket — the service was
+ * down for all of it. Buckets with no checks at all are omitted entirely, so
+ * consecutive points are not necessarily adjacent in time.
+ */
 export interface SeriesPoint {
   ts: number
   avgLatency: number | null
@@ -71,6 +84,11 @@ export interface UptimeWindows {
 /** Response of GET /api/services/:id/metrics — a Service plus detail extras. */
 export interface ServiceMetrics extends Service {
   series: SeriesPoint[]
+  /** The requested window (unix seconds). The chart's x-domain, not the data's extent. */
+  from: number
+  to: number
+  /** Width of one series bucket; also the gap threshold for breaking the line. */
+  bucketSeconds: number
   uptimeWindows: UptimeWindows
   tls: ServiceTls | null
 }
@@ -125,7 +143,6 @@ export interface User {
 }
 
 export interface AppSettings {
-  publicDashboard: boolean
   defaultWidgetMode: WidgetMode
   theme: 'dark' | 'light' | 'system'
   check: {

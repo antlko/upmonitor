@@ -28,6 +28,10 @@ type widgetDTO struct {
 	Mode string `json:"mode"`
 }
 
+type chartDTO struct {
+	Type string `json:"type"`
+}
+
 type serviceDTO struct {
 	ID             string    `json:"id"`
 	Name           string    `json:"name"`
@@ -35,6 +39,7 @@ type serviceDTO struct {
 	Icon           *string   `json:"icon"`
 	Check          checkDTO  `json:"check"`
 	Widget         widgetDTO `json:"widget"`
+	Chart          chartDTO  `json:"chart"`
 	Layout         layoutDTO `json:"layout"`
 	Status         string    `json:"status"`
 	LatencyMs      *int      `json:"latencyMs"`
@@ -42,7 +47,8 @@ type serviceDTO struct {
 	ErrorCount     int       `json:"errorCount"`
 	LastCheck      *string   `json:"lastCheck"`
 	LastSuccess    *string   `json:"lastSuccess"`
-	LatencyHistory []int     `json:"latencyHistory"`
+	// LatencyHistory is chronological; a null entry means that check was offline.
+	LatencyHistory []*int `json:"latencyHistory"`
 }
 
 func isoPtr(ts *int64) *string {
@@ -80,10 +86,11 @@ func toServiceDTO(svc config.Service, m *db.ServiceMetrics) serviceDTO {
 			ExpectedStatus: expected,
 		},
 		Widget:         widgetDTO{Mode: svc.Widget.Mode},
+		Chart:          chartDTO{Type: svc.Chart.Type},
 		Layout:         layoutDTO{X: svc.Layout.X, Y: svc.Layout.Y, W: svc.Layout.W, H: svc.Layout.H},
 		Status:         db.StatusUnknown,
 		Uptime:         0,
-		LatencyHistory: []int{},
+		LatencyHistory: []*int{},
 	}
 	if m != nil {
 		dto.Status = m.Status
@@ -137,7 +144,6 @@ type uptimeWindowsDTO struct {
 }
 
 type settingsDTO struct {
-	PublicDashboard   bool             `json:"publicDashboard"`
 	DefaultWidgetMode string           `json:"defaultWidgetMode"`
 	Theme             string           `json:"theme"`
 	Check             checkSettingsDTO `json:"check"`
@@ -152,7 +158,6 @@ type checkSettingsDTO struct {
 
 func toSettingsDTO(c *config.Config, dir string) settingsDTO {
 	return settingsDTO{
-		PublicDashboard:   c.Settings.PublicDashboard,
 		DefaultWidgetMode: c.Settings.DefaultWidgetMode,
 		Theme:             c.Settings.Theme,
 		Check: checkSettingsDTO{

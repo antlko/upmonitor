@@ -13,7 +13,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useServicesPolling } from '@/composables/useServicesPolling'
 import { optimizeToWebP, svgToWebP } from '@/lib/image'
 import { ApiError } from '@/api'
-import type { Service, WidgetMode } from '@/types'
+import type { ChartType, Service, WidgetMode } from '@/types'
 import { formatUptime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -120,6 +120,13 @@ async function onSetWidgetMode(id: string, mode: WidgetMode) {
     toast.error(errMsg(e))
   }
 }
+async function onSetChartType(id: string, type: ChartType) {
+  try {
+    await services.setChartType(id, type)
+  } catch (e) {
+    toast.error(errMsg(e))
+  }
+}
 function onHover(id: string, entering: boolean) {
   if (entering) hoveredServiceId.value = id
   else if (hoveredServiceId.value === id) hoveredServiceId.value = null
@@ -191,6 +198,7 @@ onUnmounted(() => window.removeEventListener('paste', onPaste))
           @generate-icon="openGenerate"
           @remove="openDelete"
           @set-widget-mode="onSetWidgetMode"
+          @set-chart-type="onSetChartType"
           @drop-image="uploadImageFor"
           @hover="onHover"
         />

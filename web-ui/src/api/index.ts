@@ -11,9 +11,10 @@ import type {
   UserRole,
   AppSettings,
   WidgetMode,
+  ChartType,
 } from '@/types'
 
-export type MetricsRange = '24h' | '7d' | '30d' | '365d'
+export type MetricsRange = '1h' | '6h' | '24h' | '7d' | '30d'
 
 export interface IncidentInput {
   serviceId?: string
@@ -38,6 +39,8 @@ export interface ServiceInput {
   mode: WidgetMode
 }
 
+/** `mode`/`chart` are applied server-side only when set, so a plain drag-save
+ *  (which omits them) leaves those preferences alone. */
 export interface LayoutItem {
   id: string
   x: number
@@ -45,6 +48,7 @@ export interface LayoutItem {
   w: number
   h: number
   mode?: WidgetMode
+  chart?: ChartType
 }
 
 /** Typed client for the upmonitor REST API. */
@@ -117,7 +121,4 @@ export const api = {
       archive,
       'application/zip',
     ),
-
-  // Public dashboard.
-  publicServices: () => request<Service[]>('GET', '/api/public/services'),
 }

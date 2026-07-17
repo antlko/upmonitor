@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useElementSize } from '@vueuse/core'
 import { MoreHorizontal, Pencil, ImageUp, Sparkles, Trash2, ArrowUpRight, Check } from '@lucide/vue'
-import type { Service, WidgetMode } from '@/types'
+import type { ChartType, Service, WidgetMode } from '@/types'
 import ServiceIcon from './ServiceIcon.vue'
 import StatusDot from './StatusDot.vue'
 import SparklineChart from './SparklineChart.vue'
@@ -35,6 +35,7 @@ const emit = defineEmits<{
   generateIcon: []
   remove: []
   setWidgetMode: [mode: WidgetMode]
+  setChartType: [type: ChartType]
   dropImage: [file: File]
   hover: [entering: boolean]
 }>()
@@ -48,12 +49,26 @@ const widgetModes: { mode: WidgetMode; label: string }[] = [
   { mode: 'dashboard', label: 'Mini dashboard' },
 ]
 
+// Applies to this service's detail chart too, not just the card sparkline.
+const chartTypes: { type: ChartType; label: string }[] = [
+  { type: 'line', label: 'Line' },
+  { type: 'bars', label: 'Columns' },
+]
+
 // Measure the sparkline container so the SVG's internal coordinate system matches
 // its rendered width (fixes the cramped/clipped chart at small widget sizes).
 const sparkWrap = ref<HTMLElement>()
 const { width: sparkWrapWidth } = useElementSize(sparkWrap)
 const sparkWidth = computed(() => sparkWrapWidth.value || 240)
 const avgLatency = computed(() => averageLatency(s.value.latencyHistory))
+
+// With no successful check there is no average to show, but "awaiting data" is
+// only true when nothing has been checked at all — a service that has been down
+// for an hour has plenty of data, all of it failures.
+const avgLabel = computed(() => {
+  if (avgLatency.value != null) return `Avg response · ${formatLatency(avgLatency.value)}`
+  return s.value.latencyHistory.length ? 'No successful checks' : 'Awaiting data'
+})
 
 // Distinguish a real click from the tail of a drag-to-rearrange gesture.
 let downX = 0
@@ -171,6 +186,18 @@ const headerPad = computed(() => (props.readonly ? 'pr-8' : 'pr-16'))
             {{ m.label }}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
+          <DropdownMenuLabel class="text-[11px] uppercase tracking-wide text-muted-foreground/70">
+            Chart
+          </DropdownMenuLabel>
+          <DropdownMenuItem
+            v-for="t in chartTypes"
+            :key="t.type"
+            @select="emit('setChartType', t.type)"
+          >
+            <Check :class="s.chart.type === t.type ? 'opacity-100' : 'opacity-0'" />
+            {{ t.label }}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem @select="emit('edit')">
             <Pencil />
             Edit
@@ -272,15 +299,14 @@ const headerPad = computed(() => (props.readonly ? 'pr-8' : 'pr-16'))
           <SparklineChart
             :values="s.latencyHistory"
             :color="sparkColor"
+            :type="s.chart.type"
             :width="sparkWidth"
             :height="36"
             class="w-full"
           />
         </div>
         <div class="mt-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
-          <span>{{
-            avgLatency != null ? `Avg response · ${formatLatency(avgLatency)}` : 'Awaiting data'
-          }}</span>
+          <span>{{ avgLabel }}</span>
           <span>{{ timeAgo(s.lastCheck) }}</span>
         </div>
       </div>
