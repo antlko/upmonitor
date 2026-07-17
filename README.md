@@ -17,7 +17,7 @@ everything with drag‑and‑drop. One tiny container, one config file, zero fus
 
 </div>
 
-<img width="1506" height="745" alt="image" src="https://github.com/user-attachments/assets/79997a08-e966-41f6-894a-42c49e0be72f" />
+<img width="1511" height="749" alt="image" src="https://github.com/user-attachments/assets/fa6343a1-17c3-4a71-be6c-8d1fee758814" />
 
 ---
 
