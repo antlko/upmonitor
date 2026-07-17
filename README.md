@@ -18,6 +18,8 @@ everything with drag‑and‑drop. One tiny container, one config file, zero fus
 </div>
 
 <img width="1511" height="749" alt="image" src="https://github.com/user-attachments/assets/fa6343a1-17c3-4a71-be6c-8d1fee758814" />
+<img width="1510" height="746" alt="image" src="https://github.com/user-attachments/assets/fedab591-5e5d-405a-a936-5baecdb0aee6" />
+
 
 ---
 
