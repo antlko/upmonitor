@@ -1,10 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ArrowUpRight, Pencil, Trash2, LoaderCircle, RefreshCw } from '@lucide/vue'
+import {
+  ArrowLeft,
+  ArrowUpRight,
+  Pencil,
+  Trash2,
+  LoaderCircle,
+  RefreshCw,
+  ChartLine,
+  ChartColumn,
+} from '@lucide/vue'
 import ServiceIcon from '@/components/dashboard/ServiceIcon.vue'
 import StatusDot from '@/components/dashboard/StatusDot.vue'
-import ResponseTimeChart from '@/components/services/ResponseTimeChart.vue'
+import ResponseTimeChart, { type OutageWindow } from '@/components/services/ResponseTimeChart.vue'
 import SslCertCard from '@/components/services/SslCertCard.vue'
 import ServiceFormDialog from '@/components/services/ServiceFormDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -15,7 +24,7 @@ import { toast } from '@/components/ui/sonner'
 import { useServicesStore, type ServiceInput } from '@/stores/services'
 import { useAuthStore } from '@/stores/auth'
 import { api, ApiError, type MetricsRange } from '@/api'
-import type { ServiceMetrics, Incident } from '@/types'
+import type { ChartType, ServiceMetrics, Incident } from '@/types'
 import { statusLabel, formatLatency, formatUptime, timeAgo, prettyUrl, averageLatency } from '@/lib/format'
 
 const route = useRoute()
@@ -58,11 +67,31 @@ const uptimeStats = computed(() => {
 })
 
 const ranges: { value: MetricsRange; label: string }[] = [
+  { value: '1h', label: '1h' },
+  { value: '6h', label: '6h' },
   { value: '24h', label: '24h' },
   { value: '7d', label: '7d' },
   { value: '30d', label: '30d' },
-  { value: '365d', label: '365d' },
 ]
+
+// ChartColumn, not ChartBar: ChartBar is horizontal bars, this draws vertical
+// columns. Both type-check, so the compiler can't catch the mix-up.
+const chartTypes: { value: ChartType; label: string; icon: Component }[] = [
+  { value: 'line', label: 'Line chart', icon: ChartLine },
+  { value: 'bars', label: 'Column chart', icon: ChartColumn },
+]
+
+const chartType = computed<ChartType>(() => svc.value?.chart.type ?? 'line')
+
+async function onChartType(value: string | number | null) {
+  if (value !== 'line' && value !== 'bars') return
+  try {
+    await services.setChartType(id.value, value)
+    if (metrics.value) metrics.value.chart.type = value
+  } catch (e) {
+    toast.error(errMsg(e))
+  }
+}
 
 function errMsg(e: unknown) {
   return e instanceof ApiError ? e.message : 'Something went wrong'
@@ -80,11 +109,27 @@ async function loadMetrics() {
 }
 async function loadIncidents() {
   try {
-    incidents.value = (await api.listIncidents({ serviceId: id.value })).slice(0, 6)
+    incidents.value = await api.listIncidents({ serviceId: id.value })
   } catch {
     /* non-fatal */
   }
 }
+
+const recentIncidents = computed(() => incidents.value.slice(0, 6))
+
+/**
+ * Outage spans for the chart's red bands. An ongoing incident ends at the
+ * server's `to` rather than `Date.now()`: the domain is server-derived, so a
+ * skewed client clock would push the band past the plot edge.
+ */
+const outages = computed<OutageWindow[]>(() => {
+  const m = metrics.value
+  if (!m) return []
+  return incidents.value.map((inc) => ({
+    start: new Date(inc.startedAt).getTime() / 1000,
+    end: inc.resolvedAt ? new Date(inc.resolvedAt).getTime() / 1000 : m.to,
+  }))
+})
 
 onMounted(async () => {
   if (!services.loaded) await services.fetchServices().catch(() => {})
@@ -214,7 +259,7 @@ function fmtDateTime(iso: string): string {
 
       <!-- Chart -->
       <Card class="mt-6">
-        <CardHeader class="flex-row items-center justify-between gap-3 space-y-0">
+        <CardHeader class="flex-row flex-wrap items-center justify-between gap-3 space-y-0">
           <div class="flex items-center gap-2">
             <CardTitle class="text-sm">Response time</CardTitle>
             <button
@@ -225,16 +270,40 @@ function fmtDateTime(iso: string): string {
               <RefreshCw class="size-3.5" />
             </button>
           </div>
-          <Tabs v-model="range">
-            <TabsList>
-              <TabsTrigger v-for="r in ranges" :key="r.value" :value="r.value">
-                {{ r.label }}
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+          <div class="flex flex-wrap items-center gap-2">
+            <!-- Chart style is stored per service in config.yaml, so only admins
+                 can change it; everyone else sees the style they chose. -->
+            <Tabs v-if="auth.isAdmin" :model-value="chartType" @update:model-value="onChartType">
+              <TabsList>
+                <TabsTrigger
+                  v-for="t in chartTypes"
+                  :key="t.value"
+                  :value="t.value"
+                  :title="t.label"
+                  :aria-label="t.label"
+                >
+                  <component :is="t.icon" class="size-3.5" />
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <Tabs v-model="range">
+              <TabsList>
+                <TabsTrigger v-for="r in ranges" :key="r.value" :value="r.value">
+                  {{ r.label }}
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
         </CardHeader>
         <CardContent>
-          <ResponseTimeChart :series="metrics?.series ?? []" />
+          <ResponseTimeChart
+            :series="metrics?.series ?? []"
+            :from="metrics?.from ?? 0"
+            :to="metrics?.to ?? 0"
+            :bucket-seconds="metrics?.bucketSeconds ?? 60"
+            :outages="outages"
+            :type="chartType"
+          />
           <p class="mt-1 text-xs text-muted-foreground">
             Last check {{ timeAgo(svc.lastCheck) }} · latest {{ formatLatency(svc.latencyMs) }}
           </p>
@@ -253,11 +322,11 @@ function fmtDateTime(iso: string): string {
             </RouterLink>
           </CardHeader>
           <CardContent>
-            <p v-if="incidents.length === 0" class="text-sm text-muted-foreground">
+            <p v-if="recentIncidents.length === 0" class="text-sm text-muted-foreground">
               No incidents recorded for this service.
             </p>
             <ul v-else class="divide-y divide-border">
-              <li v-for="inc in incidents" :key="inc.id">
+              <li v-for="inc in recentIncidents" :key="inc.id">
                 <RouterLink
                   :to="`/incidents/${inc.id}`"
                   class="-mx-2 flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-accent"

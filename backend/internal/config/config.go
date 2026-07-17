@@ -17,6 +17,16 @@ const (
 	ModeDashboard = "dashboard"
 )
 
+// Chart types for a service's response-time history.
+const (
+	ChartLine = "line"
+	ChartBars = "bars"
+
+	// DefaultChartType is the style a service gets when the config does not say
+	// otherwise. Exported so api fallbacks cannot drift from what normalize fills in.
+	DefaultChartType = ChartLine
+)
+
 const (
 	// CurrentVersion is the schema version written to new config files.
 	CurrentVersion = 1
@@ -41,7 +51,6 @@ type Config struct {
 
 // Settings holds app-wide options.
 type Settings struct {
-	PublicDashboard   bool          `yaml:"public_dashboard"`
 	DefaultWidgetMode string        `yaml:"default_widget_mode"`
 	Theme             string        `yaml:"theme"`
 	Check             CheckDefaults `yaml:"check"`
@@ -62,6 +71,7 @@ type Service struct {
 	Icon   string       `yaml:"icon,omitempty"`
 	Check  ServiceCheck `yaml:"check"`
 	Widget Widget       `yaml:"widget"`
+	Chart  Chart        `yaml:"chart"`
 	Layout Layout       `yaml:"layout"`
 }
 
@@ -76,6 +86,12 @@ type ServiceCheck struct {
 // Widget controls how a service is rendered on the dashboard.
 type Widget struct {
 	Mode string `yaml:"mode"`
+}
+
+// Chart controls how a service's response-time history is drawn — on its
+// dashboard card sparkline and on its detail page alike.
+type Chart struct {
+	Type string `yaml:"type"`
 }
 
 // Layout is a service card's position/size in the dashboard grid.
@@ -93,7 +109,6 @@ func Default() *Config {
 	return &Config{
 		Version: CurrentVersion,
 		Settings: Settings{
-			PublicDashboard:   false,
 			DefaultWidgetMode: ModeName,
 			Theme:             "dark",
 			Check: CheckDefaults{
@@ -151,6 +166,9 @@ func (c *Config) normalize() {
 		if svc.Widget.Mode == "" {
 			svc.Widget.Mode = s.DefaultWidgetMode
 		}
+		if svc.Chart.Type == "" {
+			svc.Chart.Type = DefaultChartType
+		}
 	}
 }
 
@@ -194,6 +212,9 @@ func (s *Service) Validate() error {
 	if !validMode(s.Widget.Mode) {
 		return fmt.Errorf("invalid widget mode %q", s.Widget.Mode)
 	}
+	if !validChartType(s.Chart.Type) {
+		return fmt.Errorf("invalid chart type %q", s.Chart.Type)
+	}
 	if s.Check.Interval < minInterval {
 		s.Check.Interval = minInterval
 	}
@@ -205,6 +226,10 @@ func (s *Service) Validate() error {
 
 func validMode(m string) bool {
 	return m == ModeIcon || m == ModeName || m == ModeDashboard
+}
+
+func validChartType(t string) bool {
+	return t == ChartLine || t == ChartBars
 }
 
 // Slugify turns an arbitrary name into a valid service id.

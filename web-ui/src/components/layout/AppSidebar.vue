@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { LayoutDashboard, Boxes, TriangleAlert, Bell, Settings, PanelLeft } from '@lucide/vue'
+import { LayoutDashboard, Boxes, TriangleAlert, Plug, Settings, PanelLeft } from '@lucide/vue'
 import BrandMark from '@/components/common/BrandMark.vue'
 import SidebarNavItem from './SidebarNavItem.vue'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
@@ -28,7 +28,7 @@ const nav = computed<NavItem[]>(() => {
   items.push({ to: '/incidents', label: 'Incidents', icon: TriangleAlert })
   if (auth.isAdmin) {
     items.push(
-      { to: '/integrations', label: 'Integrations', icon: Bell },
+      { to: '/integrations', label: 'Integrations', icon: Plug },
       { to: '/settings', label: 'Settings', icon: Settings },
     )
   }

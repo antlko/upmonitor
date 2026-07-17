@@ -10,7 +10,6 @@
 version: 1
 
 settings:
-  public_dashboard: false # expose a read-only dashboard at /public
   default_widget_mode: name # icon | name | dashboard
   theme: dark # dark | light
   check:
@@ -30,4 +29,6 @@ services:
       expected_status: [200] # empty ⇒ any 2xx counts as "online"
     widget:
       mode: dashboard # icon | name | dashboard
+    chart:
+      type: line # line | bars — how response-time history is drawn
     layout: { x: 0, y: 0, w: 3, h: 4 } # grid position + size

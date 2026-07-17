@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import type { Service, WidgetMode } from '@/types'
+import type { ChartType, Service, WidgetMode } from '@/types'
 import { api, type ServiceInput, type LayoutItem } from '@/api'
 
 export type { ServiceInput }
@@ -71,11 +71,21 @@ export const useServicesStore = defineStore('services', () => {
     services.value = services.value.filter((s) => s.id !== id)
   }
 
+  // Both of these ride the layout endpoint, so they must resend the current
+  // position — it is assigned unconditionally server-side and would otherwise
+  // be zeroed.
   async function setWidgetMode(id: string, mode: WidgetMode) {
     const s = getById(id)
     if (!s) return
     await api.updateLayout([{ id, x: s.layout.x, y: s.layout.y, w: s.layout.w, h: s.layout.h, mode }])
     s.widget.mode = mode
+  }
+
+  async function setChartType(id: string, chart: ChartType) {
+    const s = getById(id)
+    if (!s) return
+    await api.updateLayout([{ id, x: s.layout.x, y: s.layout.y, w: s.layout.w, h: s.layout.h, chart }])
+    s.chart.type = chart
   }
 
   /** Persist grid positions (from grid-layout-plus) to config.yaml. */
@@ -120,6 +130,7 @@ export const useServicesStore = defineStore('services', () => {
     updateService,
     removeService,
     setWidgetMode,
+    setChartType,
     saveLayout,
     checkNow,
     uploadIcon,

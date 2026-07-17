@@ -48,10 +48,9 @@ func (s *Server) handleDeleteImage(c fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
-// GET /images/:file → serve a stored icon (gated unless the public dashboard is
-// enabled).
+// GET /images/:file → serve a stored icon (authenticated).
 func (s *Server) handleServeImage(c fiber.Ctx) error {
-	if !s.config().Settings.PublicDashboard && s.authenticate(c) == nil {
+	if s.authenticate(c) == nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "authentication required")
 	}
 	path, err := image.ResolvePath(config.ImagesPath(s.dir()), c.Params("file"))

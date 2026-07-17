@@ -98,7 +98,7 @@ web-ui/
     composables/         # useServicesPolling
     stores/              # pinia: auth, services, incidents, integrations, settings, ui
     views/               # Dashboard, ServiceDetail, Incidents(+Detail), Integrations,
-                         #   Resources, Settings, Setup, Login, Public, NotFound
+                         #   Resources, Settings, Setup, Login, NotFound
     lib/                 # icon-generator, image (canvas→WebP), prng, format
 ```
 

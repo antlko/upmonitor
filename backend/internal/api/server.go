@@ -106,7 +106,6 @@ func (s *Server) routes() {
 	app.Post("/api/setup", s.handleSetup)
 	app.Post("/api/auth/login", s.handleLogin)
 	app.Post("/api/auth/logout", s.handleLogout)
-	app.Get("/api/public/services", s.handlePublicServices)
 
 	// Authenticated.
 	app.Get("/api/auth/me", auth, s.handleMe)
@@ -144,7 +143,8 @@ func (s *Server) routes() {
 	app.Delete("/api/integrations/:id", auth, admin, s.handleDeleteIntegration)
 	app.Post("/api/integrations/:id/test", auth, admin, s.handleTestIntegration)
 
-	// Images (public when public_dashboard is enabled, else authenticated).
+	// Images (authenticated; the handler gates itself rather than via middleware
+	// so a missing cookie renders as a 401 body instead of a redirect).
 	app.Get("/images/:file", s.handleServeImage)
 
 	// SPA fallback — must be registered last.

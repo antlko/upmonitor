@@ -26,9 +26,9 @@ Errors use `{ "error": "message" }` with an appropriate status code.
 | `POST /api/services`             | admin | Add `{ name, url, interval, mode }`.                  |
 | `PUT /api/services/{id}`         | admin | Edit `{ name?, url?, interval?, mode? }`.             |
 | `DELETE /api/services/{id}`      | admin | Remove the service, its image and history.            |
-| `PATCH /api/services/layout`     | admin | Bulk-save grid layout `[{ id, x, y, w, h, mode? }]`.  |
+| `PATCH /api/services/layout`     | admin | Bulk-save grid layout `[{ id, x, y, w, h, mode?, chart? }]`. `mode`/`chart` apply only when set; `x/y/w/h` always do. |
 | `POST /api/services/{id}/check`  | admin | Run a check immediately; returns updated metrics.     |
-| `GET /api/services/{id}/metrics` | user  | Aggregates, time series, uptime windows + TLS (`?range=24h\|7d\|30d\|365d`, default `24h`). |
+| `GET /api/services/{id}/metrics` | user  | Aggregates, time series, uptime windows + TLS (`?range=1h\|6h\|24h\|7d\|30d\|365d`, default `24h`; unknown values fall back to `24h`). |
 | `POST /api/services/{id}/image`  | admin | Upload a WebP icon (raw `image/webp` body).           |
 | `DELETE /api/services/{id}/image`| admin | Remove the icon.                                      |
 
@@ -112,15 +112,11 @@ couldn't restore working channels. Store the file accordingly.
 `incidents.json` / `integrations.json` (older exports) leave that data untouched
 rather than wiping it.
 
-## Public & static
+## Static
 
-| Method & path              | Auth   | Description                                          |
-| -------------------------- | ------ | --------------------------------------------------- |
-| `GET /api/public/services` | none¹  | Read-only service list for the public dashboard.    |
-| `GET /images/{file}`       | user²  | Serve a stored icon.                                |
-
-¹ Returns `403` unless `public_dashboard` is enabled.
-² Public when `public_dashboard` is enabled.
+| Method & path        | Auth | Description          |
+| -------------------- | ---- | -------------------- |
+| `GET /images/{file}` | user | Serve a stored icon. |
 
 ## Service object
 
@@ -132,6 +128,7 @@ rather than wiping it.
   "icon": "/images/grafana.webp",      // or null
   "check": { "interval": 30, "method": "GET", "timeout": 10, "expectedStatus": [200] },
   "widget": { "mode": "dashboard" },
+  "chart": { "type": "line" },          // line | bars
   "layout": { "x": 0, "y": 0, "w": 3, "h": 4 },
   "status": "online",                   // online | offline | unknown
   "latencyMs": 118,                     // or null
@@ -139,9 +136,13 @@ rather than wiping it.
   "errorCount": 0,
   "lastCheck": "2026-07-14T12:00:00Z",  // or null
   "lastSuccess": "2026-07-14T12:00:00Z",// or null
-  "latencyHistory": [120, 118, 121]     // recent latencies for the sparkline
+  "latencyHistory": [120, 118, null, 121] // sparkline; null ⇒ that check was offline
 }
 ```
+
+`latencyHistory` is chronological and includes failed checks as `null` — an
+offline check may well have a latency (a fast `500`), but charting it would draw
+a healthy line through a failure, so only successful checks carry a number.
 
 ## Metrics object
 
@@ -149,9 +150,13 @@ rather than wiping it.
 
 ```jsonc
 {
-  "series": [                            // bucketed over ?range, ≤96 points
-    { "ts": 1784100000, "avgLatency": 118.5, "errors": 0 }
+  "series": [                            // bucketed over [from, to], ≤96 points
+    { "ts": 1784100000, "avgLatency": 118.5, "errors": 0 },
+    { "ts": 1784100900, "avgLatency": null, "errors": 30 }  // down for the whole bucket
   ],
+  "from": 1784013600,                    // requested window (unix seconds) —
+  "to": 1784100000,                      //   the chart's x-domain
+  "bucketSeconds": 900,                  // width of one series bucket
   "uptimeWindows": {                     // fixed windows, independent of ?range
     "days7": 100, "days30": 99.98, "days365": 99.98
   },
@@ -166,6 +171,24 @@ rather than wiping it.
   }
 }
 ```
+
+`series` describes only what was actually checked, and both of its "no data"
+shapes are meaningful:
+
+- **`avgLatency: null`** — checks ran but none succeeded: the service was down
+  for that whole bucket. (An offline check may still have a latency, e.g. a fast
+  `500`; it is excluded on purpose so the line means *response time when up*.)
+- **a missing bucket** — no check ran at all (app restart, service added
+  mid-window, history trimmed). Consecutive points are therefore not necessarily
+  adjacent: a gap larger than `bucketSeconds` is real.
+
+Clients must break the line on both rather than joining across them.
+
+`bucketSeconds` is chosen server-side from the span **and** the service's check
+interval, so it is at least the interval — a bucket narrower than the interval
+would leave most buckets empty. It always divides the window exactly. Typical
+values at the default 30s interval: `1h`→60s, `6h`→300s, `24h`→900s, `7d`→7200s,
+`30d`→28800s.
 
 `uptimeWindows` can only see stored history, so they are bounded by
 `check.retention_days` (default 30) — `days365` will read low until enough

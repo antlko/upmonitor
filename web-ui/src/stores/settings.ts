@@ -4,7 +4,6 @@ import type { AppSettings } from '@/types'
 import { api } from '@/api'
 
 const defaults: AppSettings = {
-  publicDashboard: false,
   defaultWidgetMode: 'name',
   theme: 'dark',
   check: { defaultInterval: 30, timeout: 10, retentionDays: 7 },
