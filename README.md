@@ -1,3 +1,5 @@
+
+
 <div align="center">
 
 # upmonitor
@@ -167,8 +169,7 @@ A commented reference config lives at
 
 ### Backup & restore
 
-**Settings → Configuration → Export** downloads a `.zip` containing
-`config.yaml` and your images. **Import** validates the archive, snapshots your
+**Settings → Configuration → Export** downloads a `.zip` containing `config.yaml`, your images, incident history, and notification integrations. **Import** validates the archive, snapshots your
 current config into `backups/`, then applies the new one — so a restore is
 always safe.
 
