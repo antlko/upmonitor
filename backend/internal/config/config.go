@@ -40,7 +40,19 @@ const (
 	defaultTimeout  = 10
 	minInterval     = 5
 	minTimeout      = 1
+
+	// defaultRetryAttempts is how many times a failing check is tried before the
+	// service is declared offline. 1 disables retries (the pre-retry behaviour).
+	defaultRetryAttempts = 3
+	maxRetryAttempts     = 10
+	maxRetryDelay        = 300
 )
+
+// DefaultRetryDelays are the waits, in seconds, before each retry: the first
+// gap, then the second, and so on. N attempts use N-1 gaps, and the last value
+// repeats if there are more gaps than entries. Exported so the api layer's
+// fallbacks cannot drift from the value written into new configs.
+var DefaultRetryDelays = []int{1, 5, 10}
 
 // Config is the root of config.yaml.
 type Config struct {
@@ -61,6 +73,10 @@ type CheckDefaults struct {
 	DefaultInterval int `yaml:"default_interval"`
 	Timeout         int `yaml:"timeout"`
 	RetentionDays   int `yaml:"retention_days"`
+	// RetryAttempts and RetryDelays are the defaults a service inherits when it
+	// does not set its own. See ServiceCheck.
+	RetryAttempts int   `yaml:"retry_attempts"`
+	RetryDelays   []int `yaml:"retry_delays"`
 }
 
 // Service is a single monitored endpoint.
@@ -81,6 +97,12 @@ type ServiceCheck struct {
 	Method         string `yaml:"method,omitempty"`
 	Timeout        int    `yaml:"timeout,omitempty"`
 	ExpectedStatus []int  `yaml:"expected_status,omitempty"`
+	// RetryAttempts is how many times a cycle tries before giving up; a cycle
+	// that only succeeds on a retry is recorded as a warning rather than an
+	// outage. 0 inherits settings.check.retry_attempts, 1 disables retries.
+	RetryAttempts int `yaml:"retry_attempts,omitempty"`
+	// RetryDelays are the waits (seconds) between attempts; empty inherits.
+	RetryDelays []int `yaml:"retry_delays,omitempty"`
 }
 
 // Widget controls how a service is rendered on the dashboard.
@@ -115,6 +137,8 @@ func Default() *Config {
 				DefaultInterval: defaultInterval,
 				Timeout:         defaultTimeout,
 				RetentionDays:   DefaultRetentionDays,
+				RetryAttempts:   defaultRetryAttempts,
+				RetryDelays:     append([]int(nil), DefaultRetryDelays...),
 			},
 		},
 		Services: []Service{},
@@ -152,6 +176,12 @@ func (c *Config) normalize() {
 	if s.Check.RetentionDays == 0 {
 		s.Check.RetentionDays = DefaultRetentionDays
 	}
+	if s.Check.RetryAttempts == 0 {
+		s.Check.RetryAttempts = defaultRetryAttempts
+	}
+	if len(s.Check.RetryDelays) == 0 {
+		s.Check.RetryDelays = append([]int(nil), DefaultRetryDelays...)
+	}
 	for i := range c.Services {
 		svc := &c.Services[i]
 		if svc.Check.Interval == 0 {
@@ -162,6 +192,15 @@ func (c *Config) normalize() {
 		}
 		if svc.Check.Timeout == 0 {
 			svc.Check.Timeout = s.Check.Timeout
+		}
+		if svc.Check.RetryAttempts == 0 {
+			svc.Check.RetryAttempts = s.Check.RetryAttempts
+		}
+		// Copy rather than share: inheriting the settings slice by reference
+		// would alias one backing array across every service and the settings
+		// block, so clamping one service would silently clamp them all.
+		if len(svc.Check.RetryDelays) == 0 {
+			svc.Check.RetryDelays = append([]int(nil), s.Check.RetryDelays...)
 		}
 		if svc.Widget.Mode == "" {
 			svc.Widget.Mode = s.DefaultWidgetMode
@@ -220,6 +259,23 @@ func (s *Service) Validate() error {
 	}
 	if s.Check.Timeout < minTimeout {
 		s.Check.Timeout = minTimeout
+	}
+	if s.Check.RetryAttempts < 1 {
+		s.Check.RetryAttempts = 1
+	}
+	if s.Check.RetryAttempts > maxRetryAttempts {
+		s.Check.RetryAttempts = maxRetryAttempts
+	}
+	if len(s.Check.RetryDelays) > maxRetryAttempts {
+		s.Check.RetryDelays = s.Check.RetryDelays[:maxRetryAttempts]
+	}
+	for i, d := range s.Check.RetryDelays {
+		if d < 0 {
+			s.Check.RetryDelays[i] = 0
+		}
+		if d > maxRetryDelay {
+			s.Check.RetryDelays[i] = maxRetryDelay
+		}
 	}
 	return nil
 }

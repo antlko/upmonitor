@@ -147,3 +147,53 @@ func TestBuildEmailMessage(t *testing.T) {
 		}
 	}
 }
+
+// Subject/Body are three-way now; a warning must read as "still up, but it
+// blipped", and must carry the first failure's reason.
+func TestWarningSubjectAndBody(t *testing.T) {
+	msg := sampleMessage()
+	msg.Event = EventWarning
+	msg.IncidentID = 0
+	msg.Attempts = 2
+	msg.Error = "502 Bad Gateway"
+
+	subject := msg.Subject()
+	if strings.Contains(subject, "DOWN") || strings.Contains(subject, "RECOVERED") {
+		t.Errorf("warning subject reads like an incident: %q", subject)
+	}
+	if !strings.Contains(subject, "API") {
+		t.Errorf("subject = %q, want the service name in it", subject)
+	}
+
+	body := msg.Body()
+	for _, want := range []string{"502 Bad Gateway", "attempt 2"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body = %q, want it to contain %q", body, want)
+		}
+	}
+}
+
+func TestWebhookDefaultBodyWarningStatus(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &gotBody)
+	}))
+	defer srv.Close()
+
+	msg := sampleMessage()
+	msg.Event = EventWarning
+	msg.IncidentID = 0
+	msg.Attempts = 3
+
+	cfg, _ := json.Marshal(webhookConfig{URL: srv.URL})
+	if err := (webhookSender{}).Send(context.Background(), cfg, msg); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if gotBody["status"] != "warning" {
+		t.Errorf("status = %v, want \"warning\"", gotBody["status"])
+	}
+	if gotBody["attempts"] != float64(3) {
+		t.Errorf("attempts = %v, want 3", gotBody["attempts"])
+	}
+}

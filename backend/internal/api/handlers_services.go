@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
@@ -42,6 +43,10 @@ type serviceInput struct {
 	URL      string `json:"url"`
 	Interval int    `json:"interval"`
 	Mode     string `json:"mode"`
+	// RetryAttempts 0 and a nil RetryDelays mean "leave alone" on update and
+	// "inherit the global default" on create, matching Interval's convention.
+	RetryAttempts int   `json:"retryAttempts"`
+	RetryDelays   []int `json:"retryDelays"`
 }
 
 // POST /api/services → add a service (persisted to config.yaml).
@@ -68,10 +73,14 @@ func (s *Server) handleCreateService(c fiber.Ctx) error {
 			interval = cfg.Settings.Check.DefaultInterval
 		}
 		cfg.Services = append(cfg.Services, config.Service{
-			ID:     id,
-			Name:   in.Name,
-			URL:    in.URL,
-			Check:  config.ServiceCheck{Interval: interval, Method: "GET", Timeout: cfg.Settings.Check.Timeout},
+			ID:   id,
+			Name: in.Name,
+			URL:  in.URL,
+			Check: config.ServiceCheck{
+				Interval: interval, Method: "GET", Timeout: cfg.Settings.Check.Timeout,
+				RetryAttempts: in.RetryAttempts,
+				RetryDelays:   append([]int(nil), in.RetryDelays...),
+			},
 			Widget: config.Widget{Mode: mode},
 			Layout: config.Layout{X: 0, Y: maxBottom(cfg.Services), W: w, H: h},
 		})
@@ -106,6 +115,14 @@ func (s *Server) handleUpdateService(c fiber.Ctx) error {
 		}
 		if in.Mode != "" {
 			svc.Widget.Mode = in.Mode
+		}
+		if in.RetryAttempts != 0 {
+			svc.Check.RetryAttempts = in.RetryAttempts
+		}
+		// Copy: the decoded request slice must not end up aliased into the
+		// live config once the clone is swapped in.
+		if in.RetryDelays != nil {
+			svc.Check.RetryDelays = append([]int(nil), in.RetryDelays...)
 		}
 		return nil
 	})
@@ -287,6 +304,46 @@ func (s *Server) handleServiceMetrics(c fiber.Ctx) error {
 		UptimeWindows: uptimeWindowsDTO{Days7: up7, Days30: up30, Days365: up365},
 		TLS:           toTLSDTO(tlsInfo),
 	})
+}
+
+// defaultCheckPageSize/maxCheckPageSize bound the ping console's page size.
+const (
+	defaultCheckPageSize = 100
+	maxCheckPageSize     = 500
+)
+
+// GET /api/services/:id/checks?limit=&before= → stored check cycles, newest
+// first, for the service's ping console. Rows come back un-squashed: collapsing
+// runs of successes is a rendering concern, and doing it here would break
+// across page boundaries.
+func (s *Server) handleServiceChecks(c fiber.Ctx) error {
+	id := c.Params("id")
+	if s.config().Find(id) == nil {
+		return fiber.NewError(fiber.StatusNotFound, "service not found")
+	}
+	limit := defaultCheckPageSize
+	if v, err := strconv.Atoi(c.Query("limit")); err == nil && v > 0 {
+		limit = min(v, maxCheckPageSize)
+	}
+	var before int64
+	if v, err := strconv.ParseInt(c.Query("before"), 10, 64); err == nil && v > 0 {
+		before = v
+	}
+	rows, err := s.conn().ListChecks(id, before, limit)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "could not load checks")
+	}
+	out := make([]checkRowDTO, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, toCheckRowDTO(r))
+	}
+	resp := checksResponse{Checks: out}
+	// Only advertise a cursor on a full page; a short page is the end.
+	if len(rows) == limit && limit > 0 {
+		next := rows[len(rows)-1].ID
+		resp.NextBefore = &next
+	}
+	return c.JSON(resp)
 }
 
 // configErr maps a config-update error to a 404 or 400 Fiber error.

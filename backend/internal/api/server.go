@@ -111,6 +111,7 @@ func (s *Server) routes() {
 	app.Get("/api/auth/me", auth, s.handleMe)
 	app.Get("/api/services", auth, s.handleListServices)
 	app.Get("/api/services/:id/metrics", auth, s.handleServiceMetrics)
+	app.Get("/api/services/:id/checks", auth, s.handleServiceChecks)
 	app.Get("/api/settings", auth, s.handleGetSettings)
 	app.Get("/api/incidents", auth, s.handleListIncidents)
 	app.Get("/api/incidents/:id", auth, s.handleGetIncident)

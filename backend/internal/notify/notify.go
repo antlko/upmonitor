@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"time"
 )
 
@@ -20,28 +21,40 @@ type Event string
 const (
 	EventIncidentStart   Event = "incident_start"
 	EventIncidentResolve Event = "incident_resolve"
+	// EventWarning is a check that failed and then recovered on a retry. It has
+	// no incident, and only integrations that opted in receive it.
+	EventWarning Event = "warning"
 )
 
 // Message is the payload handed to each Sender.
 type Message struct {
 	Event       Event
-	IncidentID  int64
+	IncidentID  int64 // 0 for a warning: no incident is opened
 	ServiceID   string
 	ServiceName string
 	ServiceURL  string
 	StartedAt   time.Time
 	ResolvedAt  *time.Time // set for resolve events
+	Attempts    int        // warning: how many attempts the cycle needed
+	Error       string     // warning: why the first attempt failed
 }
 
 // Down reports whether the message is a service-down (start) event.
 func (m Message) Down() bool { return m.Event == EventIncidentStart }
 
+// Warning reports whether the message is a recovered-on-retry event.
+func (m Message) Warning() bool { return m.Event == EventWarning }
+
 // Subject is a short one-line summary suitable for an email subject / message title.
 func (m Message) Subject() string {
-	if m.Down() {
+	switch {
+	case m.Down():
 		return "🔴 " + m.ServiceName + " is DOWN"
+	case m.Warning():
+		return "🟠 " + m.ServiceName + " recovered after a retry"
+	default:
+		return "🟢 " + m.ServiceName + " has RECOVERED"
 	}
-	return "🟢 " + m.ServiceName + " has RECOVERED"
 }
 
 // Body is a plain-text description of the event.
@@ -49,6 +62,17 @@ func (m Message) Body() string {
 	if m.Down() {
 		return m.ServiceName + " (" + m.ServiceURL + ") went down at " +
 			m.StartedAt.UTC().Format(time.RFC1123) + "."
+	}
+	if m.Warning() {
+		// The first attempt's error is the only record of why it blipped, so it
+		// belongs in the message even though the service is up.
+		b := m.ServiceName + " (" + m.ServiceURL + ") failed a check at " +
+			m.StartedAt.UTC().Format(time.RFC1123) + " but recovered on attempt " +
+			strconv.Itoa(m.Attempts) + "."
+		if m.Error != "" {
+			b += " First failure: " + m.Error + "."
+		}
+		return b
 	}
 	when := m.StartedAt
 	if m.ResolvedAt != nil {

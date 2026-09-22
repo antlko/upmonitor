@@ -54,17 +54,24 @@ func (webhookSender) Send(ctx context.Context, raw json.RawMessage, msg Message)
 // default JSON payload when no template is configured.
 func renderWebhookBody(tmpl string, msg Message) (string, error) {
 	if strings.TrimSpace(tmpl) == "" {
-		status := "down"
-		if !msg.Down() {
-			status = "recovered"
+		status := "recovered"
+		switch {
+		case msg.Down():
+			status = "down"
+		case msg.Warning():
+			status = "warning"
 		}
-		b, _ := json.Marshal(map[string]any{
+		payload := map[string]any{
 			"event":   string(msg.Event),
 			"service": msg.ServiceName,
 			"url":     msg.ServiceURL,
 			"status":  status,
 			"message": msg.Body(),
-		})
+		}
+		if msg.Warning() {
+			payload["attempts"] = msg.Attempts
+		}
+		b, _ := json.Marshal(payload)
 		return string(b), nil
 	}
 	t, err := template.New("webhook").Option("missingkey=zero").Parse(tmpl)
