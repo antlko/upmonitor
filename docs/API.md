@@ -29,6 +29,7 @@ Errors use `{ "error": "message" }` with an appropriate status code.
 | `PATCH /api/services/layout`     | admin | Bulk-save grid layout `[{ id, x, y, w, h, mode?, chart? }]`. `mode`/`chart` apply only when set; `x/y/w/h` always do. |
 | `POST /api/services/{id}/check`  | admin | Run a check immediately; returns updated metrics.     |
 | `GET /api/services/{id}/metrics` | user  | Aggregates, time series, uptime windows + TLS (`?range=1h\|6h\|24h\|7d\|30d\|365d`, default `24h`; unknown values fall back to `24h`). |
+| `GET /api/services/{id}/checks`  | user  | Stored check cycles, newest first, for the ping console (`?limit=` 1–500, default 100; `?before=` an id cursor). |
 | `POST /api/services/{id}/image`  | admin | Upload a WebP icon (raw `image/webp` body).           |
 | `DELETE /api/services/{id}/image`| admin | Remove the icon.                                      |
 
@@ -60,8 +61,8 @@ Notification channels. Fire on incident start and resolve only.
 | Method & path                        | Auth  | Description                                              |
 | ------------------------------------ | ----- | -------------------------------------------------------- |
 | `GET /api/integrations`              | admin | List channels — **secrets are never returned**.          |
-| `POST /api/integrations`             | admin | Create `{ type, name, enabled, config }`.                |
-| `PUT /api/integrations/{id}`         | admin | Update; blank/omitted secrets keep their stored value.   |
+| `POST /api/integrations`             | admin | Create `{ type, name, enabled, notifyWarnings, config }`. |
+| `PUT /api/integrations/{id}`         | admin | Update; blank/omitted secrets keep their stored value. `notifyWarnings` is a plain overwrite — always send it. |
 | `DELETE /api/integrations/{id}`      | admin | Delete (its notification log cascades).                  |
 | `POST /api/integrations/{id}/test`   | admin | Send one real test message. Always `200`; see below.     |
 
@@ -126,23 +127,30 @@ rather than wiping it.
   "name": "Grafana",
   "url": "https://grafana.home.lab",
   "icon": "/images/grafana.webp",      // or null
-  "check": { "interval": 30, "method": "GET", "timeout": 10, "expectedStatus": [200] },
+  "check": {
+    "interval": 30, "method": "GET", "timeout": 10, "expectedStatus": [200],
+    "retryAttempts": 3, "retryDelays": [1, 5, 10]
+  },
   "widget": { "mode": "dashboard" },
   "chart": { "type": "line" },          // line | bars
   "layout": { "x": 0, "y": 0, "w": 3, "h": 4 },
-  "status": "online",                   // online | offline | unknown
+  "status": "online",                   // online | offline | warning | unknown
   "latencyMs": 118,                     // or null
   "uptime": 99.98,                      // percent over the retention window
   "errorCount": 0,
+  "warningCount": 2,                    // cycles that recovered on a retry
   "lastCheck": "2026-07-14T12:00:00Z",  // or null
   "lastSuccess": "2026-07-14T12:00:00Z",// or null
-  "latencyHistory": [120, 118, null, 121] // sparkline; null ⇒ that check was offline
+  "latencyHistory": [120, 118, null, 121],  // sparkline; null ⇒ that check was offline
+  "statusHistory": ["online", "warning", "offline", "online"]
 }
 ```
 
 `latencyHistory` is chronological and includes failed checks as `null` — an
 offline check may well have a latency (a fast `500`), but charting it would draw
-a healthy line through a failure, so only successful checks carry a number.
+a healthy line through a failure, so only successful checks carry a number. A
+`warning` **does** carry its latency (the service answered on a retry), so
+`statusHistory` — same length, same order — is what tells the two apart.
 
 ## Metrics object
 
@@ -151,8 +159,8 @@ a healthy line through a failure, so only successful checks carry a number.
 ```jsonc
 {
   "series": [                            // bucketed over [from, to], ≤96 points
-    { "ts": 1784100000, "avgLatency": 118.5, "errors": 0 },
-    { "ts": 1784100900, "avgLatency": null, "errors": 30 }  // down for the whole bucket
+    { "ts": 1784100000, "avgLatency": 118.5, "errors": 0, "warnings": 1 },
+    { "ts": 1784100900, "avgLatency": null, "errors": 30, "warnings": 0 } // down for the whole bucket
   ],
   "from": 1784013600,                    // requested window (unix seconds) —
   "to": 1784100000,                      //   the chart's x-domain
@@ -194,6 +202,31 @@ values at the default 30s interval: `1h`→60s, `6h`→300s, `24h`→900s, `7d`�
 `check.retention_days` (default 30) — `days365` will read low until enough
 history exists.
 
+## Check object
+
+`GET /api/services/{id}/checks` returns one page of stored cycles:
+
+```jsonc
+{
+  "checks": [
+    {
+      "id": 4821,
+      "ts": "2026-07-15T10:46:24Z",     // the cycle's START
+      "status": "warning",              // online | offline | warning
+      "latencyMs": 118,                 // the winning attempt's
+      "statusCode": 200,                // or null on a transport error
+      "error": "Bad Gateway",           // a warning's FIRST failure
+      "attempts": 2
+    }
+  ],
+  "nextBefore": 4780                    // cursor for the next page; null at the end
+}
+```
+
+Rows come back un-collapsed — squashing runs of successes is left to the client,
+because doing it server-side would break across page boundaries. Pass
+`?before=<nextBefore>` to page backwards.
+
 ## Incident object
 
 ```jsonc
@@ -226,6 +259,7 @@ history exists.
   "type": "telegram",
   "name": "Ops",
   "enabled": true,
+  "notifyWarnings": false,            // opt-in to retry-recovery events
   "config": { "chatId": "-100123" },  // secret keys stripped
   "secrets": { "botToken": true },    // which secrets are set, never their values
   "createdAt": "2026-07-15T10:45:24Z",

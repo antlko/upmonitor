@@ -29,8 +29,12 @@ Most self‑hosted monitors are powerful but look like enterprise control panels
 upmonitor is deliberately small and good‑looking — think Linear/Vercel, not a
 grafana clone — while still doing the real work:
 
-- 🟢 **Live status** — HTTP health checks with online / offline / unknown states,
-  colored borders and a pulsing indicator.
+- 🟢 **Live status** — HTTP health checks with online / offline / warning /
+  unknown states, colored borders and a pulsing indicator.
+- 🔁 **No false alarms** — a failed check is retried before anything is declared
+  down. A check that recovers on a retry is a **warning**, not an outage: it
+  still counts as uptime and opens no incident. Tune the attempts and delays
+  globally or per service.
 - 🧩 **Drag‑and‑drop dashboard** — resize widgets and rearrange them; positions
   are saved to `config.yaml`.
 - 🎛️ **Three widget modes** — icon only, icon + name, or a mini dashboard with
@@ -39,10 +43,12 @@ grafana clone — while still doing the real work:
   opens automatically and closes when it recovers, with start/end times and a
   duration. Add your own for planned work, and comment to keep the team in sync.
 - 📣 **Get told about it** — send incidents to **Telegram, Slack, email or any
-  webhook**. Add a channel, hit *Send test*, done.
+  webhook**. Add a channel, hit *Send test*, done. Warnings are opt‑in per
+  channel, so only real outages page you by default.
 - 🔍 **Per‑service detail** — uptime over 7/30/365 days, a response‑time chart,
-  recent incidents, and **SSL certificate issuer and expiry** with a warning as
-  the date approaches.
+  recent incidents, a **ping console** that logs every check (successful runs
+  collapsed, failures spelled out with the attempt and the reason), and **SSL
+  certificate issuer and expiry** with a warning as the date approaches.
 - 📈 **Metrics that matter** — uptime %, response time, error count and last
   success, kept for 30 days (configurable) in SQLite and trimmed automatically.
 - 🎨 **Instant icons** — generate a crisp, unique icon for any service on‑device
