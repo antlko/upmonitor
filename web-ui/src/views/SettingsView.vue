@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import {
   Globe,
   Users,
@@ -16,6 +16,7 @@ import PageHeader from '@/components/layout/PageHeader.vue'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -66,6 +67,40 @@ function errMsg(e: unknown) {
 async function setDefaultMode(value: WidgetMode) {
   try {
     await settings.update({ defaultWidgetMode: value })
+  } catch (e) {
+    toast.error(errMsg(e))
+  }
+}
+
+// Retry defaults are saved on blur rather than per keystroke: each save is a
+// full-object PUT that rewrites config.yaml.
+const retryAttempts = ref(String(settings.settings.check.retryAttempts))
+const retryDelays = ref(settings.settings.check.retryDelays.join(', '))
+watch(
+  () => settings.settings.check,
+  (check) => {
+    retryAttempts.value = String(check.retryAttempts)
+    retryDelays.value = check.retryDelays.join(', ')
+  },
+)
+
+async function saveRetryDefaults() {
+  const attempts = Number(retryAttempts.value) || 1
+  const delays = retryDelays.value
+    .split(',')
+    .map((part) => Number(part.trim()))
+    .filter((n) => Number.isFinite(n) && n >= 0)
+  if (
+    attempts === settings.settings.check.retryAttempts &&
+    delays.join(',') === settings.settings.check.retryDelays.join(',')
+  ) {
+    return
+  }
+  try {
+    await settings.update({
+      check: { ...settings.settings.check, retryAttempts: attempts, retryDelays: delays },
+    })
+    toast.success('Retry defaults saved')
   } catch (e) {
     toast.error(errMsg(e))
   }
@@ -170,6 +205,41 @@ async function removeUser(id: number, name: string) {
               <component :is="opt.icon" class="size-4" />
               {{ opt.label }}
             </button>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-border bg-card p-4">
+          <div class="min-w-0">
+            <p class="text-sm font-medium">Check retries</p>
+            <p class="mt-0.5 text-xs text-muted-foreground">
+              Defaults for new services, and for any service that does not set its own.
+              A check that recovers on a retry is a warning, not an outage.
+            </p>
+          </div>
+          <div class="mt-3 grid grid-cols-2 gap-4">
+            <div class="grid gap-2">
+              <Label for="set-retries">Attempts</Label>
+              <Input
+                id="set-retries"
+                v-model="retryAttempts"
+                type="number"
+                min="1"
+                max="10"
+                @blur="saveRetryDefaults"
+              />
+              <p class="text-xs text-muted-foreground">1 disables retries.</p>
+            </div>
+            <div class="grid gap-2">
+              <Label for="set-delays">Retry delays</Label>
+              <Input
+                id="set-delays"
+                v-model="retryDelays"
+                placeholder="1, 5, 10"
+                autocomplete="off"
+                @blur="saveRetryDefaults"
+              />
+              <p class="text-xs text-muted-foreground">Seconds between attempts.</p>
+            </div>
           </div>
         </div>
 

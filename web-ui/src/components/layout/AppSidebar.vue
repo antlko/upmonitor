@@ -113,6 +113,10 @@ const collapsed = computed(() => ui.sidebarCollapsed)
           <span class="size-2 rounded-full bg-offline" />
           <span v-if="!collapsed" class="text-xs font-medium tabular-nums">{{ services.offlineCount }}</span>
         </span>
+        <span class="flex items-center gap-1.5" title="Warning (recovered on a retry)">
+          <span class="size-2 rounded-full bg-warning" />
+          <span v-if="!collapsed" class="text-xs font-medium tabular-nums">{{ services.warningCount }}</span>
+        </span>
         <span class="flex items-center gap-1.5" title="Unknown">
           <span class="size-2 rounded-full bg-unknown" />
           <span v-if="!collapsed" class="text-xs font-medium tabular-nums">{{ services.unknownCount }}</span>

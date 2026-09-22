@@ -3,7 +3,12 @@
  * the `config.yaml` schema, so the same types are reused once the API is wired.
  */
 
-export type ServiceStatus = 'online' | 'offline' | 'unknown'
+/**
+ * `warning` is a check that failed and then recovered on a retry: the service
+ * answered, so it counts as uptime and opens no incident. It is sticky — the
+ * service stays in warning until a cycle succeeds on its first attempt.
+ */
+export type ServiceStatus = 'online' | 'offline' | 'warning' | 'unknown'
 
 export type WidgetMode = 'icon' | 'name' | 'dashboard'
 
@@ -26,6 +31,10 @@ export interface ServiceCheck {
   method: string
   timeout: number // seconds
   expectedStatus: number[] // empty ⇒ any 2xx is "online"
+  /** Attempts per cycle before the service is called offline. 1 disables retries. */
+  retryAttempts: number
+  /** Waits (seconds) between attempts; the last value repeats. */
+  retryDelays: number[]
 }
 
 /** A monitored service — the core domain entity. */
@@ -43,6 +52,8 @@ export interface Service {
   latencyMs: number | null
   uptime: number // 0..100 over the retention window
   errorCount: number
+  /** Cycles in the window that only succeeded on a retry. */
+  warningCount: number
   lastCheck: string | null // ISO timestamp
   lastSuccess: string | null // ISO timestamp
   /**
@@ -50,6 +61,11 @@ export interface Service {
    * check was **offline** — not that the reading is missing.
    */
   latencyHistory: (number | null)[]
+  /**
+   * Parallel to `latencyHistory`. A warning check carries a latency just like an
+   * online one, so the status is the only way to tell them apart.
+   */
+  statusHistory: ServiceStatus[]
 }
 
 /**
@@ -62,6 +78,26 @@ export interface SeriesPoint {
   ts: number
   avgLatency: number | null
   errors: number
+  /** Checks in this bucket that recovered on a retry. */
+  warnings: number
+}
+
+/** One stored check cycle, as listed in a service's ping console. */
+export interface CheckRow {
+  id: number
+  ts: string
+  status: ServiceStatus
+  latencyMs: number | null
+  statusCode: number | null
+  /** For a warning, why the FIRST attempt failed. */
+  error: string
+  attempts: number
+}
+
+/** A page of check rows; `nextBefore` is null once there is nothing older. */
+export interface ChecksPage {
+  checks: CheckRow[]
+  nextBefore: number | null
 }
 
 /** Current TLS certificate snapshot for a service (null for HTTP services). */
@@ -129,6 +165,8 @@ export interface Integration {
   type: IntegrationType
   name: string
   enabled: boolean
+  /** Opt-in to warning events (a check that recovered on a retry). Off by default. */
+  notifyWarnings: boolean
   config: Record<string, unknown>
   secrets: Record<string, boolean>
   createdAt: string
@@ -149,6 +187,8 @@ export interface AppSettings {
     defaultInterval: number
     timeout: number
     retentionDays: number
+    retryAttempts: number
+    retryDelays: number[]
   }
   configDir: string
 }

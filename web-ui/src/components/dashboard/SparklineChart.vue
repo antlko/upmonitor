@@ -1,17 +1,22 @@
 <script setup lang="ts">
 import { computed, useId } from 'vue'
-import type { ChartType } from '@/types'
+import type { ChartType, ServiceStatus } from '@/types'
 
 const props = withDefaults(
   defineProps<{
     /** Chronological latencies; `null` means that check was offline. */
     values: (number | null)[]
+    /**
+     * Parallel to `values`. A warning kept its latency (the service answered on
+     * a retry), so only the status distinguishes it from a healthy check.
+     */
+    statuses?: ServiceStatus[]
     width?: number
     height?: number
     color?: string
     type?: ChartType
   }>(),
-  { width: 140, height: 40, color: 'var(--color-online)', type: 'line' },
+  { width: 140, height: 40, color: 'var(--color-online)', type: 'line', statuses: () => [] },
 )
 
 const gradId = `spark-${useId()}`
@@ -85,8 +90,21 @@ const bars = computed(() => {
       y: top,
       h: Math.max(1, props.height - top),
       down,
+      warning: props.statuses[i] === 'warning',
     }
   })
+})
+
+/** Narrow amber ticks where a check recovered on a retry. The bar chart
+ *  colours those bars directly, so it needs none. */
+const warningMarks = computed(() => {
+  if (props.type === 'bars') return []
+  const n = props.values.length
+  const slot = n > 1 ? props.width / (n - 1) : props.width
+  return props.statuses
+    .map((st, i) => ({ st, i }))
+    .filter(({ st }) => st === 'warning')
+    .map(({ i }) => ({ i, x: Math.max(0, xAt(i) - slot / 4), w: Math.max(1, slot / 2) }))
 })
 
 /** Vertical marks where the service was down, in both chart types. */
@@ -128,6 +146,17 @@ const downMarks = computed(() => {
       opacity="0.3"
     />
 
+    <rect
+      v-for="m in warningMarks"
+      :key="`warn-${m.i}`"
+      :x="m.x"
+      y="0"
+      :width="m.w"
+      :height="height"
+      fill="var(--color-warning)"
+      opacity="0.28"
+    />
+
     <template v-if="type === 'bars'">
       <rect
         v-for="b in bars"
@@ -136,7 +165,7 @@ const downMarks = computed(() => {
         :y="b.y"
         :width="b.w"
         :height="b.h"
-        :fill="b.down ? 'var(--color-offline)' : 'currentColor'"
+        :fill="b.down ? 'var(--color-offline)' : b.warning ? 'var(--color-warning)' : 'currentColor'"
         :opacity="b.down ? 0.55 : 0.85"
       />
     </template>

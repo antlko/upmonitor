@@ -6,7 +6,7 @@ import { api } from '@/api'
 const defaults: AppSettings = {
   defaultWidgetMode: 'name',
   theme: 'dark',
-  check: { defaultInterval: 30, timeout: 10, retentionDays: 7 },
+  check: { defaultInterval: 30, timeout: 10, retentionDays: 7, retryAttempts: 3, retryDelays: [1, 5, 10] },
   configDir: '',
 }
 

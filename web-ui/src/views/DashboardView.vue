@@ -37,6 +37,7 @@ const stats = computed(() => [
   { label: 'Services', value: String(services.services.length) },
   { label: 'Online', value: String(services.onlineCount), dot: 'bg-online' },
   { label: 'Offline', value: String(services.offlineCount), dot: 'bg-offline' },
+  { label: 'Warning', value: String(services.warningCount), dot: 'bg-warning' },
   { label: 'Avg uptime', value: formatUptime(services.avgUptime) },
 ])
 
@@ -174,7 +175,7 @@ onUnmounted(() => window.removeEventListener('paste', onPaste))
     </div>
 
     <template v-else>
-      <div v-if="services.hasServices" class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div v-if="services.hasServices" class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <div
           v-for="stat in stats"
           :key="stat.label"

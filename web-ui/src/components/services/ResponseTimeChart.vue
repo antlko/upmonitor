@@ -137,8 +137,25 @@ const bars = computed(() =>
       y: down ? pad.top : y(p.avgLatency!),
       h: down ? baseY.value - pad.top : Math.max(1, baseY.value - y(p.avgLatency!)),
       down,
+      warning: !down && p.warnings > 0,
     }
   }),
+)
+
+/**
+ * Amber ticks under buckets where a check recovered on a retry. They sit on the
+ * baseline rather than spanning the plot: a warning is a blip worth seeing, not
+ * an outage worth shading.
+ */
+const warningTicks = computed(() =>
+  props.series
+    .map((p, i) => ({ p, i }))
+    .filter(({ p }) => p.warnings > 0 && p.avgLatency != null)
+    .map(({ p, i }) => {
+      const x0 = x(p.ts)
+      const x1 = x(p.ts + props.bucketSeconds)
+      return { i, x: x0, w: Math.max(1.5, x1 - x0) }
+    }),
 )
 
 /** Outage bands, clamped to the window and dropped when they fall outside it. */
@@ -227,6 +244,7 @@ const hover = computed(() => {
     time: fmtFull(p.ts),
     latency: p.avgLatency,
     errors: p.errors,
+    warnings: p.warnings,
   }
 })
 
@@ -294,6 +312,18 @@ const tipStyle = computed(() => {
           </text>
         </g>
 
+        <!-- Warning ticks sit above the outage bands but below the data. -->
+        <rect
+          v-for="t in warningTicks"
+          :key="`warn-${t.i}`"
+          :x="t.x"
+          :y="baseY - 3"
+          :width="t.w"
+          height="3"
+          fill="var(--color-warning)"
+          opacity="0.85"
+        />
+
         <template v-if="type === 'bars'">
           <rect
             v-for="b in bars"
@@ -302,7 +332,7 @@ const tipStyle = computed(() => {
             :y="b.y"
             :width="b.w"
             :height="b.h"
-            :fill="b.down ? 'var(--color-offline)' : 'currentColor'"
+            :fill="b.down ? 'var(--color-offline)' : b.warning ? 'var(--color-warning)' : 'currentColor'"
             :opacity="b.down ? 0.55 : hoverIdx === b.i ? 1 : 0.85"
             rx="1"
           />
@@ -379,6 +409,9 @@ const tipStyle = computed(() => {
         <p v-else class="mt-0.5 font-medium text-offline">No successful check</p>
         <p v-if="hover.errors > 0" class="mt-0.5 tabular-nums text-offline">
           {{ hover.errors }} failed {{ hover.errors === 1 ? 'check' : 'checks' }}
+        </p>
+        <p v-if="hover.warnings > 0" class="mt-0.5 tabular-nums text-warning">
+          {{ hover.warnings }} recovered on retry
         </p>
       </div>
     </template>

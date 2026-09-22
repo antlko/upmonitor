@@ -23,6 +23,9 @@ export const useServicesStore = defineStore('services', () => {
   const hasServices = computed(() => services.value.length > 0)
   const onlineCount = computed(() => services.value.filter((s) => s.status === 'online').length)
   const offlineCount = computed(() => services.value.filter((s) => s.status === 'offline').length)
+  // Warnings are counted separately, never folded into onlineCount: a service
+  // that keeps blipping is up, but saying "all systems operational" would lie.
+  const warningCount = computed(() => services.value.filter((s) => s.status === 'warning').length)
   const unknownCount = computed(() => services.value.filter((s) => s.status === 'unknown').length)
   const avgUptime = computed(() => {
     const tracked = services.value.filter((s) => s.status !== 'unknown')
@@ -121,6 +124,7 @@ export const useServicesStore = defineStore('services', () => {
     hasServices,
     onlineCount,
     offlineCount,
+    warningCount,
     unknownCount,
     avgUptime,
     getById,

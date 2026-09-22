@@ -68,7 +68,15 @@ async function onSubmit(input: IntegrationInput) {
 }
 async function onToggle(it: Integration, value: boolean) {
   try {
-    await store.update(it.id, { type: it.type, name: it.name, enabled: value, config: {} })
+    // notifyWarnings must be resent: it is a plain overwrite server-side, so
+    // omitting it here would silently clear the opt-in on every toggle.
+    await store.update(it.id, {
+      type: it.type,
+      name: it.name,
+      enabled: value,
+      notifyWarnings: it.notifyWarnings,
+      config: {},
+    })
   } catch (e) {
     toast.error(errMsg(e))
   }
