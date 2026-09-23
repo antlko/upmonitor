@@ -84,8 +84,11 @@ invent a test command.
   is exposed) and preserved on `PUT` when blank/omitted. They *are* included in export archives on
   purpose — a secret-less backup can't restore working channels.
 - **Route guards are UX only** — the API must enforce roles independently (`auth, admin` middleware).
-- **Check results are only `online`/`offline`**; `unknown` means "no data yet" and never comes from a
-  check.
+- **Check results are `online`/`offline`/`warning`**; `unknown` means "no data yet" and never comes
+  from a check. `warning` is a *cycle* that failed and then succeeded on a retry — the service
+  answered, so it counts as uptime and opens no incident. `Check()` itself still only ever returns
+  `online`/`offline`; the retry ladder in `scheduler.runCycle` decides `warning`, and stores one row
+  per cycle (never one per attempt — that would skew every aggregate in `db/checks.go`).
 
 ## Conventions that bite
 

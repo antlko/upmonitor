@@ -30,12 +30,17 @@ const name = ref('')
 const url = ref('')
 const interval = ref(30)
 const mode = ref<WidgetMode>('name')
+const retryAttempts = ref(3)
+// Held as text so a half-typed "1, 5," stays editable; parsed on submit.
+const retryDelays = ref('1, 5, 10')
 
 function reset() {
   name.value = props.service?.name ?? ''
   url.value = props.service?.url ?? ''
   interval.value = props.service?.check.interval ?? 30
   mode.value = props.service?.widget.mode ?? 'name'
+  retryAttempts.value = props.service?.check.retryAttempts ?? 3
+  retryDelays.value = (props.service?.check.retryDelays ?? [1, 5, 10]).join(', ')
 }
 watch(
   () => props.open,
@@ -44,6 +49,14 @@ watch(
 
 const valid = computed(() => name.value.trim().length > 0 && /^https?:\/\/.+/.test(url.value.trim()))
 
+/** "1, 5, 10" → [1, 5, 10]; junk and negatives are dropped. */
+function parseDelays(text: string): number[] {
+  return text
+    .split(',')
+    .map((part) => Number(part.trim()))
+    .filter((n) => Number.isFinite(n) && n >= 0)
+}
+
 function submit() {
   if (!valid.value) return
   emit('submit', {
@@ -51,6 +64,8 @@ function submit() {
     url: url.value.trim(),
     interval: Number(interval.value) || 30,
     mode: mode.value,
+    retryAttempts: Number(retryAttempts.value) || 1,
+    retryDelays: parseDelays(retryDelays.value),
   })
   emit('update:open', false)
 }
@@ -95,6 +110,28 @@ function submit() {
                 <SelectItem value="dashboard">Mini dashboard</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+        </div>
+
+        <div class="grid gap-3 rounded-lg border border-border px-3 py-3">
+          <div>
+            <p class="text-sm font-medium">Reliability</p>
+            <p class="mt-0.5 text-xs text-muted-foreground">
+              A failed check is retried before the service is called down. If a retry
+              succeeds it is recorded as a warning, not an outage.
+            </p>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div class="grid gap-2">
+              <Label for="svc-retries">Attempts</Label>
+              <Input id="svc-retries" v-model="retryAttempts" type="number" min="1" max="10" />
+              <p class="text-xs text-muted-foreground">1 disables retries.</p>
+            </div>
+            <div class="grid gap-2">
+              <Label for="svc-delays">Retry delays</Label>
+              <Input id="svc-delays" v-model="retryDelays" placeholder="1, 5, 10" autocomplete="off" />
+              <p class="text-xs text-muted-foreground">Seconds between attempts.</p>
+            </div>
           </div>
         </div>
       </form>

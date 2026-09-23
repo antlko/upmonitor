@@ -17,11 +17,40 @@ type layoutDTO struct {
 	H int `json:"h"`
 }
 
+// checkDTO is a service's health-check CONFIGURATION (not a stored check row —
+// that is checkRowDTO).
 type checkDTO struct {
 	Interval       int    `json:"interval"`
 	Method         string `json:"method"`
 	Timeout        int    `json:"timeout"`
 	ExpectedStatus []int  `json:"expectedStatus"`
+	RetryAttempts  int    `json:"retryAttempts"`
+	RetryDelays    []int  `json:"retryDelays"`
+}
+
+// checkRowDTO is one stored check cycle — a row in a service's ping console.
+type checkRowDTO struct {
+	ID         int64  `json:"id"`
+	Ts         string `json:"ts"`
+	Status     string `json:"status"`
+	LatencyMs  *int   `json:"latencyMs"`
+	StatusCode *int   `json:"statusCode"`
+	Error      string `json:"error"`
+	Attempts   int    `json:"attempts"`
+}
+
+// checksResponse is a page of check rows plus the cursor for the next one
+// (null once there is nothing older to fetch).
+type checksResponse struct {
+	Checks     []checkRowDTO `json:"checks"`
+	NextBefore *int64        `json:"nextBefore"`
+}
+
+func toCheckRowDTO(c db.Check) checkRowDTO {
+	return checkRowDTO{
+		ID: c.ID, Ts: iso(c.Ts), Status: c.Status, LatencyMs: c.LatencyMs,
+		StatusCode: c.StatusCode, Error: c.Error, Attempts: c.Attempts,
+	}
 }
 
 type widgetDTO struct {
@@ -33,22 +62,26 @@ type chartDTO struct {
 }
 
 type serviceDTO struct {
-	ID             string    `json:"id"`
-	Name           string    `json:"name"`
-	URL            string    `json:"url"`
-	Icon           *string   `json:"icon"`
-	Check          checkDTO  `json:"check"`
-	Widget         widgetDTO `json:"widget"`
-	Chart          chartDTO  `json:"chart"`
-	Layout         layoutDTO `json:"layout"`
-	Status         string    `json:"status"`
-	LatencyMs      *int      `json:"latencyMs"`
-	Uptime         float64   `json:"uptime"`
-	ErrorCount     int       `json:"errorCount"`
-	LastCheck      *string   `json:"lastCheck"`
-	LastSuccess    *string   `json:"lastSuccess"`
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	URL          string    `json:"url"`
+	Icon         *string   `json:"icon"`
+	Check        checkDTO  `json:"check"`
+	Widget       widgetDTO `json:"widget"`
+	Chart        chartDTO  `json:"chart"`
+	Layout       layoutDTO `json:"layout"`
+	Status       string    `json:"status"`
+	LatencyMs    *int      `json:"latencyMs"`
+	Uptime       float64   `json:"uptime"`
+	ErrorCount   int       `json:"errorCount"`
+	LastCheck    *string   `json:"lastCheck"`
+	LastSuccess  *string   `json:"lastSuccess"`
+	WarningCount int       `json:"warningCount"`
 	// LatencyHistory is chronological; a null entry means that check was offline.
 	LatencyHistory []*int `json:"latencyHistory"`
+	// StatusHistory parallels LatencyHistory: a warning carries a latency just
+	// like an online check, so only the status tells them apart.
+	StatusHistory []string `json:"statusHistory"`
 }
 
 func isoPtr(ts *int64) *string {
@@ -74,6 +107,10 @@ func toServiceDTO(svc config.Service, m *db.ServiceMetrics) serviceDTO {
 	if expected == nil {
 		expected = []int{}
 	}
+	retryDelays := svc.Check.RetryDelays
+	if retryDelays == nil {
+		retryDelays = []int{}
+	}
 	dto := serviceDTO{
 		ID:   svc.ID,
 		Name: svc.Name,
@@ -84,6 +121,8 @@ func toServiceDTO(svc config.Service, m *db.ServiceMetrics) serviceDTO {
 			Method:         svc.Check.Method,
 			Timeout:        svc.Check.Timeout,
 			ExpectedStatus: expected,
+			RetryAttempts:  svc.Check.RetryAttempts,
+			RetryDelays:    retryDelays,
 		},
 		Widget:         widgetDTO{Mode: svc.Widget.Mode},
 		Chart:          chartDTO{Type: svc.Chart.Type},
@@ -91,16 +130,21 @@ func toServiceDTO(svc config.Service, m *db.ServiceMetrics) serviceDTO {
 		Status:         db.StatusUnknown,
 		Uptime:         0,
 		LatencyHistory: []*int{},
+		StatusHistory:  []string{},
 	}
 	if m != nil {
 		dto.Status = m.Status
 		dto.LatencyMs = m.LatencyMs
 		dto.Uptime = m.Uptime
 		dto.ErrorCount = m.ErrorCount
+		dto.WarningCount = m.WarningCount
 		dto.LastCheck = isoPtr(m.LastCheck)
 		dto.LastSuccess = isoPtr(m.LastSuccess)
 		if m.History != nil {
 			dto.LatencyHistory = m.History
+		}
+		if m.HistoryStatus != nil {
+			dto.StatusHistory = m.HistoryStatus
 		}
 	}
 	return dto
@@ -151,12 +195,18 @@ type settingsDTO struct {
 }
 
 type checkSettingsDTO struct {
-	DefaultInterval int `json:"defaultInterval"`
-	Timeout         int `json:"timeout"`
-	RetentionDays   int `json:"retentionDays"`
+	DefaultInterval int   `json:"defaultInterval"`
+	Timeout         int   `json:"timeout"`
+	RetentionDays   int   `json:"retentionDays"`
+	RetryAttempts   int   `json:"retryAttempts"`
+	RetryDelays     []int `json:"retryDelays"`
 }
 
 func toSettingsDTO(c *config.Config, dir string) settingsDTO {
+	delays := c.Settings.Check.RetryDelays
+	if delays == nil {
+		delays = []int{}
+	}
 	return settingsDTO{
 		DefaultWidgetMode: c.Settings.DefaultWidgetMode,
 		Theme:             c.Settings.Theme,
@@ -164,6 +214,8 @@ func toSettingsDTO(c *config.Config, dir string) settingsDTO {
 			DefaultInterval: c.Settings.Check.DefaultInterval,
 			Timeout:         c.Settings.Check.Timeout,
 			RetentionDays:   c.Settings.Check.RetentionDays,
+			RetryAttempts:   c.Settings.Check.RetryAttempts,
+			RetryDelays:     delays,
 		},
 		ConfigDir: dir,
 	}
@@ -234,14 +286,16 @@ func toIncidentCommentDTO(cm db.IncidentComment) incidentCommentDTO {
 }
 
 type integrationDTO struct {
-	ID        int64           `json:"id"`
-	Type      string          `json:"type"`
-	Name      string          `json:"name"`
-	Enabled   bool            `json:"enabled"`
-	Config    json.RawMessage `json:"config"`  // secret fields removed
-	Secrets   map[string]bool `json:"secrets"` // secret field → whether it's set
-	CreatedAt string          `json:"createdAt"`
-	UpdatedAt string          `json:"updatedAt"`
+	ID      int64  `json:"id"`
+	Type    string `json:"type"`
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	// NotifyWarnings opts the channel into warning events (off by default).
+	NotifyWarnings bool            `json:"notifyWarnings"`
+	Config         json.RawMessage `json:"config"`  // secret fields removed
+	Secrets        map[string]bool `json:"secrets"` // secret field → whether it's set
+	CreatedAt      string          `json:"createdAt"`
+	UpdatedAt      string          `json:"updatedAt"`
 }
 
 // toIntegrationDTO redacts secret fields from the stored config, exposing only
@@ -257,13 +311,14 @@ func toIntegrationDTO(in db.Integration) integrationDTO {
 	}
 	redacted, _ := json.Marshal(cfg)
 	return integrationDTO{
-		ID:        in.ID,
-		Type:      in.Type,
-		Name:      in.Name,
-		Enabled:   in.Enabled,
-		Config:    redacted,
-		Secrets:   secrets,
-		CreatedAt: iso(in.CreatedAt),
-		UpdatedAt: iso(in.UpdatedAt),
+		ID:             in.ID,
+		Type:           in.Type,
+		Name:           in.Name,
+		Enabled:        in.Enabled,
+		NotifyWarnings: in.NotifyWarnings,
+		Config:         redacted,
+		Secrets:        secrets,
+		CreatedAt:      iso(in.CreatedAt),
+		UpdatedAt:      iso(in.UpdatedAt),
 	}
 }

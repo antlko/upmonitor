@@ -29,6 +29,8 @@ services: [ ... ] # monitored services
 | `check.default_interval` | int (seconds) | `30`    | Fallback check interval when a service doesn't set one.         |
 | `check.timeout`        | int (seconds)   | `10`    | Fallback request timeout.                                       |
 | `check.retention_days` | int (days)      | `30`     | Metrics history is trimmed to this window (hourly).             |
+| `check.retry_attempts` | int             | `3`      | Fallback attempts per cycle before a service is called offline. |
+| `check.retry_delays`   | list of int (s) | `[1,5,10]` | Fallback waits between attempts.                              |
 
 ## `services`
 
@@ -44,6 +46,8 @@ Each entry defines one monitored endpoint.
     method: GET # HTTP method
     timeout: 10 # seconds before the check fails (min 1)
     expected_status: [200] # accepted status codes; empty ⇒ any 2xx is "online"
+    retry_attempts: 3 # tries per cycle; 1 disables retries. 0/omitted inherits
+    retry_delays: [1, 5, 10] # seconds between tries; omitted inherits
   widget:
     mode: dashboard # icon | name | dashboard
   chart:
@@ -58,6 +62,11 @@ Each entry defines one monitored endpoint.
   (`<id>.webp`) and the metrics key.
 - **`expected_status`** — leave empty (or omit) to treat any `2xx` as online.
   Otherwise a check is "online" only when the response code is in the list.
+- **`retry_attempts` / `retry_delays`** — omit (or leave at `0`/empty) to inherit
+  `settings.check`. **N attempts use N-1 gaps**, so the default `3` attempts uses
+  only the first two delays (`1s`, `5s`); the last value repeats if you raise the
+  attempt count. `retry_attempts: 1` turns retries off for this service.
+  Attempts are clamped to `1..10` and each delay to `0..300` seconds.
 - **`icon`** is optional. With no icon, the UI renders a generated procedural
   icon; uploading or generating one stores a `<id>.webp` and sets this field.
 
@@ -115,14 +124,28 @@ A check is recorded as:
 
 - **online** — response received within the timeout and the status matches
   `expected_status` (or is any `2xx` when the list is empty).
-- **offline** — a network/DNS/TLS error, a timeout, or an unexpected status.
+- **offline** — every attempt in the cycle failed with a network/DNS/TLS error, a
+  timeout, or an unexpected status.
+- **warning** — an attempt failed but a retry succeeded. The service answered, so
+  it **counts as uptime** and opens no incident; the stored row keeps the winning
+  attempt's latency and status code together with the *first* attempt's error.
+  The status is sticky: a service reads `warning` until a cycle succeeds on its
+  first attempt.
 - **unknown** — no check has completed yet (e.g. just added). A check itself
-  never *results* in `unknown`; it only ever records `online` or `offline`.
+  never *results* in `unknown`.
 
-A change from `online` to `offline` opens an incident and notifies your
-integrations; the reverse resolves it. There is no retry threshold — a single
-failed check is enough. See
+A change to `offline` opens an incident and notifies your integrations; a change
+back to `online` — or to `warning`, which also means the service is answering —
+resolves it. A `warning` that had no incident to resolve notifies only the
+integrations with **Notify on warnings** switched on (off by default). While a
+service is already offline, retries are skipped: the incident is open, so there
+is nothing left to decide. See
 [ARCHITECTURE.md §4](ARCHITECTURE.md#4-incident-lifecycle).
+
+> **Upgrading:** retries are on by default, so after an update every service
+> gains 3 attempts. Incidents open up to a ladder later, and single-blip
+> incidents stop appearing at all. Set `retry_attempts: 1` to keep the old
+> behaviour.
 
 ## Editing by hand
 

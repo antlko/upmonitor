@@ -2,6 +2,7 @@ import { request, requestRaw, getBlob } from './http'
 import type {
   Service,
   ServiceMetrics,
+  ChecksPage,
   Incident,
   IncidentComment,
   IncidentDetail,
@@ -27,6 +28,8 @@ export interface IntegrationInput {
   type: IntegrationType
   name: string
   enabled: boolean
+  /** Always send the current value: unlike a secret, a blank bool cannot mean "keep". */
+  notifyWarnings: boolean
   config: Record<string, unknown>
 }
 
@@ -37,6 +40,9 @@ export interface ServiceInput {
   url: string
   interval: number
   mode: WidgetMode
+  /** 0 / omitted inherits the global default; 1 disables retries. */
+  retryAttempts?: number
+  retryDelays?: number[]
 }
 
 /** `mode`/`chart` are applied server-side only when set, so a plain drag-save
@@ -72,6 +78,13 @@ export const api = {
   checkNow: (id: string) => request<Service>('POST', `/api/services/${id}/check`),
   serviceMetrics: (id: string, range: MetricsRange = '24h') =>
     request<ServiceMetrics>('GET', `/api/services/${id}/metrics?range=${range}`),
+  serviceChecks: (id: string, opts: { limit?: number; before?: number } = {}) => {
+    const q = new URLSearchParams()
+    if (opts.limit) q.set('limit', String(opts.limit))
+    if (opts.before) q.set('before', String(opts.before))
+    const qs = q.toString()
+    return request<ChecksPage>('GET', `/api/services/${id}/checks${qs ? `?${qs}` : ''}`)
+  },
   uploadImage: (id: string, blob: Blob) =>
     requestRaw<{ icon: string }>('POST', `/api/services/${id}/image`, blob, 'image/webp'),
   deleteImage: (id: string) => request<void>('DELETE', `/api/services/${id}/image`),

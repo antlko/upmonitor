@@ -8,7 +8,7 @@ func TestSeriesFor(t *testing.T) {
 
 	insert := func(ts int64, status string, latency *int) {
 		t.Helper()
-		if err := database.InsertCheck("svc", ts, status, latency, nil, ""); err != nil {
+		if err := database.InsertCheck("svc", ts, status, latency, nil, "", 1); err != nil {
 			t.Fatalf("insert: %v", err)
 		}
 	}
@@ -79,7 +79,7 @@ func TestMetricsForAllHistory(t *testing.T) {
 
 	insert := func(ts int64, status string, latency *int) {
 		t.Helper()
-		if err := database.InsertCheck("svc", ts, status, latency, nil, ""); err != nil {
+		if err := database.InsertCheck("svc", ts, status, latency, nil, "", 1); err != nil {
 			t.Fatalf("insert: %v", err)
 		}
 	}
@@ -150,7 +150,7 @@ func TestUptimeSince(t *testing.T) {
 		{1200, StatusOffline},
 		{1300, StatusOnline},
 	} {
-		if err := database.InsertCheck("svc", row.ts, row.status, &lat, nil, ""); err != nil {
+		if err := database.InsertCheck("svc", row.ts, row.status, &lat, nil, "", 1); err != nil {
 			t.Fatalf("insert: %v", err)
 		}
 	}

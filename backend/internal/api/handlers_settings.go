@@ -37,6 +37,13 @@ func (s *Server) handleUpdateSettings(c fiber.Ctx) error {
 		if in.Check.RetentionDays > 0 {
 			cfg.Settings.Check.RetentionDays = in.Check.RetentionDays
 		}
+		if in.Check.RetryAttempts > 0 {
+			cfg.Settings.Check.RetryAttempts = in.Check.RetryAttempts
+		}
+		// Copy the decoded slice: it must not be aliased into the live config.
+		if in.Check.RetryDelays != nil {
+			cfg.Settings.Check.RetryDelays = append([]int(nil), in.Check.RetryDelays...)
+		}
 		return nil
 	})
 	if err != nil {

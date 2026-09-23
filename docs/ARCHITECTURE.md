@@ -70,22 +70,55 @@ decides).
 
 One `check()` does, in order:
 
-1. Take a snapshot of `svc` and `prev := w.lastStatus` under the worker mutex.
-2. Run the HTTP request with the service timeout.
-3. **Bail if the worker was cancelled mid-flight** (`parent.Err() != nil`) —
+1. Take `worker.runMu`, so only one cycle per service runs at a time.
+2. Take a snapshot of `svc` and `prev := w.lastStatus` under the worker mutex.
+3. `runCycle(...)` — the retry ladder (below). One cycle, one row.
+4. **Bail if the worker was cancelled mid-flight** (`parent.Err() != nil`) —
    otherwise a config edit or shutdown would record a bogus `offline`.
-4. `InsertCheck(...)` — append to history.
-5. `storeTLS(...)` — upsert the cert snapshot (HTTPS only).
-6. Update `w.lastStatus`.
-7. `incident.OnTransition(prev, res.Status, ...)`.
+5. `InsertCheck(...)` — append to history, stamped with the cycle's **start**.
+6. `storeTLS(...)` — upsert the cert snapshot (HTTPS only, offline cycles only).
+7. Update `w.lastStatus`.
+8. `incident.OnTransition(prev, Outcome{...}, ...)`.
 
-`Check()` returns **only `online` or `offline`** — never `unknown`. `unknown` is
-purely a "no data yet" state in the DB/DTO layer. So transitions are always
-`online ↔ offline`.
+### The retry ladder
+
+`runCycle` performs up to `check.retry_attempts` requests, waiting
+`check.retry_delays[i]` between them (the last delay repeats; N attempts use N-1
+gaps). It classifies the cycle:
+
+| Outcome | Stored as |
+| --- | --- |
+| attempt 1 succeeded | `online`, `attempts = 1` |
+| a later attempt succeeded | `warning` — latency/code from the winning attempt, `error` from the **first** one |
+| every attempt failed | `offline` with the last attempt's detail |
+
+`Check()` itself still returns **only `online` or `offline`** and stays a
+single-attempt classifier; `warning` is a property of the cycle, decided one
+level up. `unknown` remains purely a "no data yet" state in the DB/DTO layer and
+never comes from a check.
+
+Three rules keep the ladder from doing harm:
+
+- **No retries while already offline.** Retries exist to decide whether to *open*
+  an incident, and one is already open; this also stops a week-long outage from
+  tripling the traffic aimed at a dead endpoint.
+- **A cycle may not outrun its interval.** Before each retry, `runCycle` checks
+  `elapsed + delay + timeout` against the interval and stops early if it would
+  overrun. `startWorker` logs a warning when a ladder cannot fit at all — the
+  config is never silently rewritten.
+- **`sleepCtx`, never `time.Sleep`.** `Stop()` and `Sync()` must not block for
+  the length of a ladder.
+
+Rows are stamped with the cycle's **start** rather than its end: an outage began
+when the first attempt failed, and it keeps rows interval-aligned, which is what
+`chooseBucket` assumes.
 
 Concurrency: `worker.svc` and `worker.lastStatus` are guarded by `worker.mu`,
 because the ticker goroutine, `Sync` and a manual `CheckNow` can all touch them.
-The workers *map* is guarded by `Scheduler.mu`.
+`worker.runMu` serialises whole cycles — a ladder widens the ticker/`CheckNow`
+overlap enough that the slower one could otherwise act on a stale `prev` and open
+an incident for a service the other just found healthy. The workers *map* is
+guarded by `Scheduler.mu`.
 
 ## 4. Incident lifecycle
 
@@ -93,13 +126,21 @@ The workers *map* is guarded by `Scheduler.mu`.
 the status itself.** Nothing scans the DB looking for down services. The only
 trigger is `prev != current` inside a worker, at the moment a check is recorded.
 
-`internal/incident/incident.go` — `OnTransition` has exactly three branches:
+`internal/incident/incident.go` — `OnTransition` encodes one rule: **an incident
+is open exactly while the service is `offline`; `warning` counts as up.**
 
-| Transition | Effect |
-| --- | --- |
-| `prev == current` | no-op — the overwhelmingly common path, and why a service that stays down doesn't spawn an incident every tick |
-| `online → offline` | `CreateIncident(source="auto", started_at=ts)` → fire `incident_start` |
-| `offline → online` | `ResolveOngoingIncident(resolved_at=ts)` → fire `incident_resolve` (silent if nothing was open) |
+| prev ↓ / current → | `online` | `warning` | `offline` |
+| --- | --- | --- | --- |
+| `online` | no-op | no incident; fire `warning` (opted-in channels only) | `CreateIncident` → `incident_start` |
+| `warning` | no-op, no notification | no-op — this is what dedupes a service that blips every cycle | `CreateIncident` → `incident_start` |
+| `offline` | `ResolveOngoingIncident` → `incident_resolve` | same, and **no** warning notification: the resolve already says we are back | no-op — why a service that stays down doesn't spawn an incident every tick |
+| `unknown` | resolve (silent) | silent | `CreateIncident` → `incident_start` |
+
+`prev == current` returns immediately, which is the overwhelmingly common path.
+`InitialStatus` deliberately still returns only `online`/`offline` — a third seed
+value would change nothing in the matrix. The one visible consequence: a restart
+that lands exactly on a warning re-seeds as `online` and may send one duplicate
+warning notification. The UI is unaffected (status comes from the latest row).
 
 ### The invariant: one open incident per service
 
@@ -142,34 +183,48 @@ The hourly retention loop trims **`checks` only** (plus expired sessions).
 Incidents are never aged out — outage history outlives the metrics window. They
 die only with their service, or by explicit delete.
 
-### Known limitation: no flap protection
+### Flap protection, and what it does not cover
 
-A single failed check opens an incident and fires notifications immediately.
-There is no retry/confirmation threshold, so one network blip = noise. If you add
-one, the natural place is a consecutive-failure counter on `worker` gating the
-call to `OnTransition` — `internal/incident` itself would not need to change,
-since it is already decoupled from *how* we decided the service is down.
+A single failed check no longer opens an incident: the retry ladder (§3) has to
+exhaust every attempt first, so one network blip becomes a `warning` rather than
+an outage. `internal/incident` did not need to learn about retries — it is
+decoupled from *how* we decided the service is down, and only gained the third
+status.
+
+What is still unprotected is **warning notification noise**. A service
+alternating `warning → online → warning` fires a warning every other cycle, since
+the `prev == current` dedupe does not catch an alternation. That is why warnings
+are opt-in per channel. A cooldown would have to live on `worker`; `incident` is
+deliberately stateless.
 
 ### Why `incident` is its own package
 
 `monitor` imports `incident`, so `incident` must never import `monitor` (import
 cycle). Hence everything arrives as arguments:
-`OnTransition(ctx, db, dispatcher, svc, prev, current, ts)`. It depends only on
+`OnTransition(ctx, db, dispatcher, svc, prev, Outcome{...}, ts)` — `Outcome`
+carries the attempt count and first-failure reason so a warning notification can
+explain itself without importing `monitor`. It depends only on
 `db` + `notify`, which also makes it trivially testable — tests pass `nil` as the
 dispatcher.
 
 ## 5. Notifications
 
-Fired from exactly two events: incident start and incident resolve. Nothing else
-notifies.
+Three events: incident start, incident resolve, and `warning` (a check that
+recovered on a retry). Nothing else notifies.
 
-`incident.fire()` builds a `notify.Message` and calls
+`incident.fire()` / `fireWarning()` build a `notify.Message` and call
 `go dispatcher.Notify(...)` — **deliberately in a goroutine**, so a slow SMTP
 server can't stall the check loop.
 
-`internal/notify/dispatcher.go` then: loads enabled integrations → one goroutine
+`internal/notify/dispatcher.go` then: loads enabled integrations → **skips any
+whose `notify_warnings` is false when the event is `warning`** → one goroutine
 per integration → calls its `Sender` → writes a `notification_log` row for
 **every** attempt (sent or failed). No retries.
+
+Warnings are opt-in per channel and off by default: they are frequent by design,
+and a channel that pages a human wants outages only. A warning has no incident,
+so its log row carries `incident_id = NULL` — which is why migration 00005 had to
+rebuild `notification_log` (SQLite can alter neither a `CHECK` nor a `NOT NULL`).
 
 Senders live one-per-file (`telegram.go`, `slack.go`, `email.go`, `webhook.go`)
 and self-register via `init()` into the `senders` map. **To add a channel type:**
@@ -289,12 +344,12 @@ create/edit/resolve/delete behind `auth.isAdmin`.
 | --- | --- | --- |
 | First-run setup | `SetupView.vue` | `POST /api/setup` — first admin |
 | Sign in | `LoginView.vue` | `POST /api/auth/login` |
-| Add/edit service | `services/ServiceFormDialog.vue` | name, url, interval, widget mode → `POST`/`PUT /api/services` |
+| Add/edit service | `services/ServiceFormDialog.vue` | name, url, interval, widget mode, retry attempts/delays → `POST`/`PUT /api/services` |
 | Generate icon | `services/IconGeneratorDialog.vue` | procedural SVG → rasterised → icon upload |
 | Create/edit incident | `incidents/IncidentFormDialog.vue` | service, title, startedAt, resolvedAt (`datetime-local` ⇄ RFC3339) |
 | Comment composer | `IncidentDetailView.vue` | `POST /api/incidents/:id/comments` |
-| Add/edit integration | `integrations/IntegrationFormDialog.vue` | type-conditional fields; secrets blank = keep |
-| Settings | `SettingsView.vue` | settings, users, config path, raw `config.yaml` editor |
+| Add/edit integration | `integrations/IntegrationFormDialog.vue` | type-conditional fields; secrets blank = keep; `notifyWarnings` switch (plain overwrite — the row toggle in `IntegrationsView.vue` must resend it) |
+| Settings | `SettingsView.vue` | settings incl. global retry defaults, users, config path, raw `config.yaml` editor |
 | Confirm | `common/ConfirmDialog.vue` | generic destructive confirmation |
 
 Dialog convention: `props { open, <entity>? }`, emits `update:open` + `submit`,
@@ -342,6 +397,11 @@ Two behaviours worth knowing:
 - **IDs are preserved** so `incident_comments.incident_id` stays valid, and user
   references that don't exist in the target DB are nulled (users aren't part of
   the archive), so foreign keys hold across instances.
+- **New fields ride along without a format change.** Retry settings live in
+  `config.yaml`, and `notify_warnings` is a field of the exported
+  `db.Integration`. `config.Parse` does not use `KnownFields`, so an older binary
+  reading a newer archive ignores what it doesn't know; a newer binary reading an
+  older archive gets the Go zero value, which keeps warnings opted **out**.
 
 ## 12. Where to make a change
 
@@ -352,7 +412,9 @@ Two behaviours worth knowing:
 | New config field | `config/config.go` struct + `Default()` + `normalize()` + `Validate()` → `config/clone.go` **only if the field is a reference type** (slice/map/pointer — value types ride along in `Clone`'s `copy`) → [CONFIGURATION.md](CONFIGURATION.md) |
 | New per-service preference | follow `widget.mode` / `chart.type`: config field → `serviceDTO` → `layoutItem` + an `if it.X != ""` guard in `handleUpdateLayout` → a store action that re-sends the current `x/y/w/h` (the handler assigns layout unconditionally) → card ⋯ menu |
 | Change the response-time chart | `services/ResponseTimeChart.vue` (detail) / `dashboard/SparklineChart.vue` (card) — both hand-rolled SVG, no chart library. Bucketing is server-side: `api.chooseBucket` + `db.SeriesFor` |
-| Change monitoring/incident behaviour | `monitor/scheduler.go` (when) / `incident/incident.go` (what) |
+| Change the ping console | `services/PingConsole.vue` — collapsing runs of successes is client-side on purpose; `db.ListChecks` returns raw rows |
+| Change monitoring/incident behaviour | `monitor/scheduler.go` (when — including `runCycle`'s retry ladder) / `incident/incident.go` (what) |
+| Add a check status | `db/checks.go` `CHECK` constraint (new migration) + every `IN ('online','warning')` aggregate → `ServiceStatus` in `web-ui/src/types` → `statusLabel`, `StatusDot`, `ServiceCard`'s three colour maps, `ServiceDetailView.statusPill`, `DashboardView.stats`, `AppSidebar` counters, both charts |
 | New notification channel | see §5 |
 | New page | route + `adminOnly` + `AppSidebar.vue` nav + API-side `auth, admin` |
 | Change card layout/behaviour | `dashboard/ServiceCard.vue` (highest-churn file) |

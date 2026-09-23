@@ -96,6 +96,7 @@ const borderClass = computed(
     ({
       online: 'border-online/30 hover:border-online/50',
       offline: 'border-offline/40 hover:border-offline/60',
+      warning: 'border-warning/40 hover:border-warning/60',
       unknown: 'border-border hover:border-muted-foreground/25',
     })[s.value.status],
 )
@@ -104,6 +105,7 @@ const statusPill = computed(
     ({
       online: 'bg-online/10 text-online',
       offline: 'bg-offline/10 text-offline',
+      warning: 'bg-warning/10 text-warning',
       unknown: 'bg-unknown/15 text-muted-foreground',
     })[s.value.status],
 )
@@ -112,6 +114,7 @@ const sparkColor = computed(
     ({
       online: 'var(--color-online)',
       offline: 'var(--color-offline)',
+      warning: 'var(--color-warning)',
       unknown: 'var(--color-unknown)',
     })[s.value.status],
 )
@@ -298,6 +301,7 @@ const headerPad = computed(() => (props.readonly ? 'pr-8' : 'pr-16'))
         <div v-if="s.latencyHistory.length" ref="sparkWrap" class="-mx-1">
           <SparklineChart
             :values="s.latencyHistory"
+            :statuses="s.statusHistory"
             :color="sparkColor"
             :type="s.chart.type"
             :width="sparkWidth"

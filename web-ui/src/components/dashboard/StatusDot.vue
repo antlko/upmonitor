@@ -8,9 +8,12 @@ const props = withDefaults(
   { pulse: true, size: 'sm' },
 )
 
-const color = computed(() =>
-  props.status === 'online' ? 'bg-online' : props.status === 'offline' ? 'bg-offline' : 'bg-unknown',
-)
+const color = computed(() => {
+  if (props.status === 'online') return 'bg-online'
+  if (props.status === 'offline') return 'bg-offline'
+  if (props.status === 'warning') return 'bg-warning'
+  return 'bg-unknown'
+})
 const dim = computed(() => (props.size === 'md' ? 'size-2.5' : 'size-2'))
 </script>
 

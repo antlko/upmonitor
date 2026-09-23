@@ -31,10 +31,13 @@ var requiredFields = map[string][]string{
 }
 
 type integrationInput struct {
-	Type    string         `json:"type"`
-	Name    string         `json:"name"`
-	Enabled bool           `json:"enabled"`
-	Config  map[string]any `json:"config"`
+	Type    string `json:"type"`
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	// NotifyWarnings is a plain overwrite — unlike secrets, a blank bool cannot
+	// mean "keep", so the client must always send the current value.
+	NotifyWarnings bool           `json:"notifyWarnings"`
+	Config         map[string]any `json:"config"`
 }
 
 // GET /api/integrations → all channels (secrets redacted).
@@ -71,7 +74,7 @@ func (s *Server) handleCreateIntegration(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 	raw, _ := json.Marshal(cfg)
-	created, err := s.conn().CreateIntegration(in.Type, name, in.Enabled, raw)
+	created, err := s.conn().CreateIntegration(in.Type, name, in.Enabled, in.NotifyWarnings, raw)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "could not create integration")
 	}
@@ -108,7 +111,7 @@ func (s *Server) handleUpdateIntegration(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 	raw, _ := json.Marshal(merged)
-	updated, err := s.conn().UpdateIntegration(existing.ID, name, in.Enabled, raw)
+	updated, err := s.conn().UpdateIntegration(existing.ID, name, in.Enabled, in.NotifyWarnings, raw)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "could not update integration")
 	}

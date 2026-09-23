@@ -15,6 +15,7 @@ import ServiceIcon from '@/components/dashboard/ServiceIcon.vue'
 import StatusDot from '@/components/dashboard/StatusDot.vue'
 import ResponseTimeChart, { type OutageWindow } from '@/components/services/ResponseTimeChart.vue'
 import SslCertCard from '@/components/services/SslCertCard.vue'
+import PingConsole from '@/components/services/PingConsole.vue'
 import ServiceFormDialog from '@/components/services/ServiceFormDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { Button } from '@/components/ui/button'
@@ -48,6 +49,7 @@ const statusPill = computed(() => {
   return {
     online: 'bg-online/10 text-online',
     offline: 'bg-offline/10 text-offline',
+    warning: 'bg-warning/10 text-warning',
     unknown: 'bg-unknown/15 text-muted-foreground',
   }[s]
 })
@@ -137,12 +139,15 @@ onMounted(async () => {
   timer = setInterval(() => {
     loadMetrics()
     loadIncidents()
+    console_.value?.refresh()
   }, 15_000)
 })
 onUnmounted(() => timer && clearInterval(timer))
 watch(range, loadMetrics)
 
 // --- admin actions ---
+const console_ = ref<InstanceType<typeof PingConsole> | null>(null)
+
 const editOpen = ref(false)
 const confirmOpen = ref(false)
 
@@ -347,6 +352,19 @@ function fmtDateTime(iso: string): string {
           </CardContent>
         </Card>
       </div>
+
+      <!-- Ping console -->
+      <Card class="mt-6">
+        <CardHeader class="flex-row items-center justify-between gap-2 space-y-0">
+          <CardTitle class="text-sm">Ping console</CardTitle>
+          <span class="text-xs text-muted-foreground">
+            Runs of successful checks are collapsed
+          </span>
+        </CardHeader>
+        <CardContent>
+          <PingConsole ref="console_" :service-id="id" />
+        </CardContent>
+      </Card>
     </template>
 
     <ServiceFormDialog

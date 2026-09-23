@@ -2,7 +2,10 @@ import type { ServiceStatus } from '@/types'
 
 /** Human label for a status. */
 export function statusLabel(status: ServiceStatus): string {
-  return status === 'online' ? 'Online' : status === 'offline' ? 'Offline' : 'Unknown'
+  if (status === 'online') return 'Online'
+  if (status === 'offline') return 'Offline'
+  if (status === 'warning') return 'Warning'
+  return 'Unknown'
 }
 
 /** Format a latency in ms, e.g. `120ms` or `1.2s`. */

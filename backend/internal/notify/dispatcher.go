@@ -33,6 +33,11 @@ func (d *Dispatcher) Notify(ctx context.Context, msg Message) {
 	}
 	var wg sync.WaitGroup
 	for _, in := range integrations {
+		// Warnings are opt-in per channel: a flapping service would otherwise
+		// page everyone every cycle for something that is still up.
+		if msg.Event == EventWarning && !in.NotifyWarnings {
+			continue
+		}
 		sender, ok := SenderFor(in.Type)
 		if !ok {
 			continue
@@ -52,7 +57,11 @@ func (d *Dispatcher) deliver(ctx context.Context, sender Sender, in db.Integrati
 		status, errMsg = "failed", err.Error()
 		slog.Warn("notify: delivery failed", "integration", in.ID, "type", in.Type, "error", err)
 	}
-	if err := d.db.LogNotification(in.ID, msg.IncidentID, string(msg.Event), status, errMsg, time.Now().Unix()); err != nil {
+	var incID *int64
+	if msg.IncidentID != 0 {
+		incID = &msg.IncidentID
+	}
+	if err := d.db.LogNotification(in.ID, incID, string(msg.Event), status, errMsg, time.Now().Unix()); err != nil {
 		slog.Error("notify: log attempt", "error", err)
 	}
 }

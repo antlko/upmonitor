@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectTrigger,
@@ -30,6 +31,7 @@ const isEdit = computed(() => !!props.integration)
 const type = ref<IntegrationType>('telegram')
 const name = ref('')
 const enabled = ref(true)
+const notifyWarnings = ref(false)
 
 // One flat bag of every possible field; only the relevant ones are shown/sent.
 const f = reactive({
@@ -79,6 +81,7 @@ function reset() {
   type.value = it?.type ?? 'telegram'
   name.value = it?.name ?? ''
   enabled.value = it?.enabled ?? true
+  notifyWarnings.value = it?.notifyWarnings ?? false
   const c = (it?.config ?? {}) as Record<string, unknown>
   f.botToken = ''
   f.chatId = str(c.chatId)
@@ -146,6 +149,7 @@ function submit() {
     type: type.value,
     name: name.value.trim(),
     enabled: enabled.value,
+    notifyWarnings: notifyWarnings.value,
     config: buildConfig(),
   })
   emit('update:open', false)
@@ -158,7 +162,8 @@ function submit() {
       <DialogHeader>
         <DialogTitle>{{ isEdit ? 'Edit integration' : 'Add integration' }}</DialogTitle>
         <DialogDescription>
-          Notify a channel when an incident starts or resolves.
+          Notify a channel when an incident starts or resolves — and, if you opt in,
+          when a check recovers on a retry.
         </DialogDescription>
       </DialogHeader>
 
@@ -300,6 +305,17 @@ function submit() {
             />
           </div>
         </template>
+
+        <div class="flex items-start justify-between gap-4 rounded-lg border border-border px-3 py-2.5">
+          <div class="min-w-0">
+            <Label for="notify-warnings" class="cursor-pointer">Notify on warnings</Label>
+            <p class="mt-0.5 text-xs text-muted-foreground">
+              A warning is a check that failed and then recovered on a retry. Off by
+              default — only outages are sent.
+            </p>
+          </div>
+          <Switch id="notify-warnings" v-model="notifyWarnings" class="mt-0.5 shrink-0" />
+        </div>
       </form>
 
       <DialogFooter>
