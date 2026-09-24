@@ -184,6 +184,66 @@ func TestValidateClampsRetryConfig(t *testing.T) {
 	}
 }
 
+// A config from before dashboard settings existed has no `dashboard:` key and
+// must normalize to the documented default rather than a look-back of 0 hours
+// (which would make the "Warning" tile useless).
+func TestNormalizeDashboardDefaults(t *testing.T) {
+	cfg, err := Parse([]byte(`
+version: 1
+settings:
+  default_widget_mode: name
+services: []
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := cfg.Settings.Dashboard.WarningPeriodHours; got != DefaultWarningPeriodHours {
+		t.Errorf("warning_period_hours = %d, want %d", got, DefaultWarningPeriodHours)
+	}
+	if cfg.Settings.Dashboard.UptimeExcludedServices != nil {
+		t.Errorf("uptime_excluded_services = %v, want nil (no services excluded by default)",
+			cfg.Settings.Dashboard.UptimeExcludedServices)
+	}
+}
+
+func TestValidateClampsWarningPeriodHours(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		in   int
+		want int
+	}{
+		{"negative", -5, 1},
+		{"zero renormalizes to the default", 0, DefaultWarningPeriodHours},
+		{"over the cap", 999999, maxWarningPeriodHours},
+		{"in range", 6, 6},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Default()
+			cfg.Settings.Dashboard.WarningPeriodHours = tt.in
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("validate: %v", err)
+			}
+			if got := cfg.Settings.Dashboard.WarningPeriodHours; got != tt.want {
+				t.Errorf("warning_period_hours = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+// Clone must deep-copy UptimeExcludedServices: it's a reference type, so a
+// shallow copy would let mutating one config's list mutate the other's.
+func TestCloneIsolatesUptimeExcludedServices(t *testing.T) {
+	cfg := Default()
+	cfg.Settings.Dashboard.UptimeExcludedServices = []string{"a", "b"}
+
+	clone := cfg.Clone()
+	clone.Settings.Dashboard.UptimeExcludedServices[0] = "mutated"
+
+	if cfg.Settings.Dashboard.UptimeExcludedServices[0] != "a" {
+		t.Errorf("original mutated via clone: %v", cfg.Settings.Dashboard.UptimeExcludedServices)
+	}
+}
+
 func equalInts(a, b []int) bool {
 	if len(a) != len(b) {
 		return false

@@ -1,24 +1,28 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { Plus, Boxes, LoaderCircle } from '@lucide/vue'
+import { Plus, Boxes, LoaderCircle, Pencil } from '@lucide/vue'
 import ServiceGrid from '@/components/dashboard/ServiceGrid.vue'
 import ServiceFormDialog from '@/components/services/ServiceFormDialog.vue'
 import IconGeneratorDialog from '@/components/services/IconGeneratorDialog.vue'
+import WarningPeriodDialog from '@/components/dashboard/WarningPeriodDialog.vue'
+import UptimeServicesDialog from '@/components/dashboard/UptimeServicesDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/components/ui/sonner'
 import { useServicesStore, type ServiceInput } from '@/stores/services'
 import { useAuthStore } from '@/stores/auth'
+import { useSettingsStore } from '@/stores/settings'
 import { useServicesPolling } from '@/composables/useServicesPolling'
 import { optimizeToWebP, svgToWebP } from '@/lib/image'
-import { ApiError } from '@/api'
-import type { ChartType, Service, WidgetMode } from '@/types'
+import { api, ApiError } from '@/api'
+import type { ChartType, DashboardStats, Service, WidgetMode } from '@/types'
 import { formatUptime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 const services = useServicesStore()
 const auth = useAuthStore()
+const settings = useSettingsStore()
 useServicesPolling()
 
 const formOpen = ref(false)
@@ -27,22 +31,63 @@ const iconOpen = ref(false)
 const iconService = ref<Service | null>(null)
 const confirmOpen = ref(false)
 const confirmService = ref<Service | null>(null)
+const warningPeriodOpen = ref(false)
+const uptimeServicesOpen = ref(false)
 
 const fileInput = ref<HTMLInputElement>()
 const imageTargetId = ref<string | null>(null)
 const hoveredServiceId = ref<string | null>(null)
 
+// The "Warning" tile's period-based count comes from a separate endpoint since
+// it depends on an admin-configurable look-back window rather than a service's
+// current live status (which services.warningCount still reflects, e.g. for
+// the sidebar badge).
+const dashboardStats = ref<DashboardStats | null>(null)
+async function loadDashboardStats() {
+  try {
+    dashboardStats.value = await api.dashboardStats()
+  } catch {
+    /* non-fatal: falls back to the live warning count below */
+  }
+}
+let statsTimer: ReturnType<typeof setInterval> | undefined
+
 const showEmpty = computed(() => services.loaded && !services.hasServices)
 const stats = computed(() => [
-  { label: 'Services', value: String(services.services.length) },
-  { label: 'Online', value: String(services.onlineCount), dot: 'bg-online' },
-  { label: 'Offline', value: String(services.offlineCount), dot: 'bg-offline' },
-  { label: 'Warning', value: String(services.warningCount), dot: 'bg-warning' },
-  { label: 'Avg uptime', value: formatUptime(services.avgUptime) },
+  { key: 'services', label: 'Services', value: String(services.services.length) },
+  { key: 'online', label: 'Online', value: String(services.onlineCount), dot: 'bg-online' },
+  { key: 'offline', label: 'Offline', value: String(services.offlineCount), dot: 'bg-offline' },
+  {
+    key: 'warning',
+    label: 'Warning',
+    value: String(dashboardStats.value?.warningServiceCount ?? services.warningCount),
+    dot: 'bg-warning',
+  },
+  { key: 'avgUptime', label: 'Avg uptime', value: formatUptime(services.avgUptime) },
 ])
 
 function errMsg(e: unknown) {
   return e instanceof ApiError ? e.message : 'Something went wrong'
+}
+
+async function onSaveWarningPeriod(hours: number) {
+  try {
+    await settings.update({ dashboard: { ...settings.settings.dashboard, warningPeriodHours: hours } })
+    await loadDashboardStats()
+    toast.success('Warning period updated')
+  } catch (e) {
+    toast.error(errMsg(e))
+  }
+}
+async function onSaveUptimeServices(excludedIds: string[]) {
+  try {
+    await settings.update({
+      dashboard: { ...settings.settings.dashboard, uptimeExcludedServices: excludedIds },
+    })
+    toast.success('Avg uptime services updated')
+  } catch (e) {
+    toast.error(errMsg(e))
+  }
 }
 
 function openAdd() {
@@ -150,8 +195,16 @@ function onPaste(e: ClipboardEvent) {
     }
   }
 }
-onMounted(() => window.addEventListener('paste', onPaste))
-onUnmounted(() => window.removeEventListener('paste', onPaste))
+onMounted(() => {
+  window.addEventListener('paste', onPaste)
+  if (!settings.loaded) settings.fetch().catch(() => {})
+  loadDashboardStats()
+  statsTimer = setInterval(loadDashboardStats, 10_000)
+})
+onUnmounted(() => {
+  window.removeEventListener('paste', onPaste)
+  if (statsTimer) clearInterval(statsTimer)
+})
 </script>
 
 <template>
@@ -179,13 +232,29 @@ onUnmounted(() => window.removeEventListener('paste', onPaste))
         <div
           v-for="stat in stats"
           :key="stat.label"
-          class="rounded-xl border border-border bg-card px-4 py-3"
+          class="group relative rounded-xl border border-border bg-card px-4 py-3"
         >
           <div class="flex items-center gap-1.5">
             <span v-if="stat.dot" :class="cn('size-2 rounded-full', stat.dot)" />
             <p class="text-xs text-muted-foreground">{{ stat.label }}</p>
           </div>
           <p class="mt-1 text-xl font-semibold tabular-nums">{{ stat.value }}</p>
+          <button
+            v-if="auth.isAdmin && settings.loaded && stat.key === 'warning'"
+            class="absolute top-2.5 right-2.5 cursor-pointer text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+            title="Configure the warning look-back period"
+            @click="warningPeriodOpen = true"
+          >
+            <Pencil class="size-3.5" />
+          </button>
+          <button
+            v-if="auth.isAdmin && settings.loaded && stat.key === 'avgUptime'"
+            class="absolute top-2.5 right-2.5 cursor-pointer text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+            title="Configure which services are counted"
+            @click="uptimeServicesOpen = true"
+          >
+            <Pencil class="size-3.5" />
+          </button>
         </div>
       </div>
 
@@ -232,6 +301,17 @@ onUnmounted(() => window.removeEventListener('paste', onPaste))
       confirm-label="Delete"
       destructive
       @confirm="onConfirmDelete"
+    />
+    <WarningPeriodDialog
+      v-model:open="warningPeriodOpen"
+      :hours="settings.settings.dashboard.warningPeriodHours"
+      @submit="onSaveWarningPeriod"
+    />
+    <UptimeServicesDialog
+      v-model:open="uptimeServicesOpen"
+      :services="services.services"
+      :excluded-ids="settings.settings.dashboard.uptimeExcludedServices"
+      @submit="onSaveUptimeServices"
     />
   </div>
 </template>

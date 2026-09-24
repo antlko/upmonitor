@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { LoaderCircle } from '@lucide/vue'
-import { Button } from '@/components/ui/button'
+import PagerControls from '@/components/common/PagerControls.vue'
 import { api } from '@/api'
 import { formatLatency } from '@/lib/format'
 import type { CheckRow } from '@/types'
@@ -13,13 +13,28 @@ const nextBefore = ref<number | null>(null)
 const loading = ref(true)
 const loadingMore = ref(false)
 
-const PAGE = 100
+// How many raw rows to fetch per request from the server (a run of successes
+// squashes to one line, so this needs to be generous for a page of LINES to
+// usually be satisfied by a single fetch). 500 is the server's own cap
+// (maxCheckPageSize), so this is as few round trips as the API allows.
+const FETCH_BATCH = 500
+// Lines shown per page. Successful checks are the boring majority and collapse
+// to one line each, so a page can span a lot more than 10 raw checks.
+const LINES_PER_PAGE = 10
+// Safety cap on how many batches a single "next page" click will fetch, so a
+// service that has been up for its entire history can't trigger an unbounded
+// fetch loop — the user can just click Next again.
+const MAX_FETCH_ROUNDS = 5
+
+const page = ref(1)
 
 async function load() {
+  loading.value = true
+  page.value = 1
   try {
-    const page = await api.serviceChecks(props.serviceId, { limit: PAGE })
-    rows.value = page.checks
-    nextBefore.value = page.nextBefore
+    const res = await api.serviceChecks(props.serviceId, { limit: FETCH_BATCH })
+    rows.value = res.checks
+    nextBefore.value = res.nextBefore
   } catch {
     /* non-fatal: the console is supplementary */
   } finally {
@@ -27,29 +42,29 @@ async function load() {
   }
 }
 
-async function loadMore() {
-  if (nextBefore.value == null || loadingMore.value) return
-  loadingMore.value = true
-  try {
-    const page = await api.serviceChecks(props.serviceId, { limit: PAGE, before: nextBefore.value })
-    rows.value = [...rows.value, ...page.checks]
-    nextBefore.value = page.nextBefore
-  } catch {
-    /* non-fatal */
-  } finally {
-    loadingMore.value = false
-  }
+async function fetchMoreRaw(): Promise<boolean> {
+  if (nextBefore.value == null) return false
+  const res = await api.serviceChecks(props.serviceId, { limit: FETCH_BATCH, before: nextBefore.value })
+  rows.value = [...rows.value, ...res.checks]
+  nextBefore.value = res.nextBefore
+  return true
 }
 
 /**
- * Refresh only the newest page, keeping anything already paged in. Rows are
+ * Refresh only the newest rows, keeping anything already paged in. Rows are
  * immutable once written, so merging by id is enough — no reconciliation.
+ *
+ * Skipped while the user has paged into older history: prepending fresh rows
+ * shifts every line's index, so a page they're actively looking at would
+ * silently show different content out from under them. They'll pick up
+ * what they missed on returning to page 1.
  */
 async function refresh() {
+  if (page.value !== 1) return
   try {
-    const page = await api.serviceChecks(props.serviceId, { limit: PAGE })
+    const res = await api.serviceChecks(props.serviceId, { limit: FETCH_BATCH })
     const known = new Set(rows.value.map((r) => r.id))
-    const fresh = page.checks.filter((r) => !known.has(r.id))
+    const fresh = res.checks.filter((r) => !known.has(r.id))
     if (fresh.length) rows.value = [...fresh, ...rows.value]
   } catch {
     /* non-fatal */
@@ -103,6 +118,38 @@ const lines = computed<Line[]>(() => {
   return out
 })
 
+const pageLines = computed(() => {
+  const start = (page.value - 1) * LINES_PER_PAGE
+  return lines.value.slice(start, start + LINES_PER_PAGE)
+})
+
+const hasPrev = computed(() => page.value > 1)
+// More to show either because it's already buffered, or because the server
+// might still have older history to fetch.
+const hasNext = computed(() => page.value * LINES_PER_PAGE < lines.value.length || nextBefore.value != null)
+
+async function prevPage() {
+  if (hasPrev.value) page.value -= 1
+}
+
+async function nextPage() {
+  if (loadingMore.value) return
+  const needed = (page.value + 1) * LINES_PER_PAGE
+  if (lines.value.length < needed && nextBefore.value != null) {
+    loadingMore.value = true
+    try {
+      for (let i = 0; i < MAX_FETCH_ROUNDS && lines.value.length < needed && nextBefore.value != null; i++) {
+        if (!(await fetchMoreRaw())) break
+      }
+    } catch {
+      /* non-fatal: show whatever page is available */
+    } finally {
+      loadingMore.value = false
+    }
+  }
+  if (lines.value.length > page.value * LINES_PER_PAGE) page.value += 1
+}
+
 function fmtTime(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
     month: 'short',
@@ -134,7 +181,7 @@ function detail(row: CheckRow): string {
     </p>
     <ul v-else class="divide-y divide-border/60 font-mono text-xs">
       <li
-        v-for="line in lines"
+        v-for="line in pageLines"
         :key="line.key"
         class="flex items-start gap-2.5 px-3 py-1.5"
         :class="
@@ -179,11 +226,14 @@ function detail(row: CheckRow): string {
       </li>
     </ul>
 
-    <div v-if="nextBefore != null" class="border-t border-border/60 px-3 py-2 text-center">
-      <Button variant="ghost" size="sm" :disabled="loadingMore" @click="loadMore">
-        <LoaderCircle v-if="loadingMore" class="animate-spin" />
-        Load more
-      </Button>
-    </div>
+    <PagerControls
+      v-if="lines.length > 0"
+      :page="page"
+      :has-prev="hasPrev"
+      :has-next="hasNext"
+      :loading="loadingMore"
+      @prev="prevPage"
+      @next="nextPage"
+    />
   </div>
 </template>

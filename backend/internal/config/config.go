@@ -46,6 +46,12 @@ const (
 	defaultRetryAttempts = 3
 	maxRetryAttempts     = 10
 	maxRetryDelay        = 300
+
+	// DefaultWarningPeriodHours is the look-back window for the dashboard's
+	// "Warning" tile when a config does not say otherwise. Exported so the api
+	// layer's fallbacks cannot drift from what new configs get.
+	DefaultWarningPeriodHours = 24
+	maxWarningPeriodHours     = 24 * 365
 )
 
 // DefaultRetryDelays are the waits, in seconds, before each retry: the first
@@ -63,9 +69,23 @@ type Config struct {
 
 // Settings holds app-wide options.
 type Settings struct {
-	DefaultWidgetMode string        `yaml:"default_widget_mode"`
-	Theme             string        `yaml:"theme"`
-	Check             CheckDefaults `yaml:"check"`
+	DefaultWidgetMode string            `yaml:"default_widget_mode"`
+	Theme             string            `yaml:"theme"`
+	Check             CheckDefaults     `yaml:"check"`
+	Dashboard         DashboardSettings `yaml:"dashboard"`
+}
+
+// DashboardSettings controls the two configurable stat tiles on the main
+// dashboard: how far back "Warning" looks, and which services "Avg uptime"
+// averages over.
+type DashboardSettings struct {
+	// WarningPeriodHours is the look-back window for the "Warning" tile: it
+	// counts services that logged at least one warning cycle in this window,
+	// rather than only services currently in a warning state.
+	WarningPeriodHours int `yaml:"warning_period_hours"`
+	// UptimeExcludedServices lists service ids left out of the "Avg uptime"
+	// tile's average. Empty (the default) includes every service.
+	UptimeExcludedServices []string `yaml:"uptime_excluded_services,omitempty"`
 }
 
 // CheckDefaults are fallbacks applied to services and the retention window.
@@ -140,6 +160,9 @@ func Default() *Config {
 				RetryAttempts:   defaultRetryAttempts,
 				RetryDelays:     append([]int(nil), DefaultRetryDelays...),
 			},
+			Dashboard: DashboardSettings{
+				WarningPeriodHours: DefaultWarningPeriodHours,
+			},
 		},
 		Services: []Service{},
 	}
@@ -182,6 +205,9 @@ func (c *Config) normalize() {
 	if len(s.Check.RetryDelays) == 0 {
 		s.Check.RetryDelays = append([]int(nil), DefaultRetryDelays...)
 	}
+	if s.Dashboard.WarningPeriodHours == 0 {
+		s.Dashboard.WarningPeriodHours = DefaultWarningPeriodHours
+	}
 	for i := range c.Services {
 		svc := &c.Services[i]
 		if svc.Check.Interval == 0 {
@@ -220,6 +246,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Settings.Check.RetentionDays < 1 {
 		return fmt.Errorf("retention_days must be >= 1")
+	}
+	if c.Settings.Dashboard.WarningPeriodHours < 1 {
+		c.Settings.Dashboard.WarningPeriodHours = 1
+	}
+	if c.Settings.Dashboard.WarningPeriodHours > maxWarningPeriodHours {
+		c.Settings.Dashboard.WarningPeriodHours = maxWarningPeriodHours
 	}
 
 	seen := make(map[string]bool, len(c.Services))

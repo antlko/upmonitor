@@ -77,6 +77,12 @@ func OnTransition(ctx context.Context, database *db.DB, dispatcher *notify.Dispa
 			slog.Info("monitor: check recovered on retry", "service", svc.ID,
 				"attempts", cur.Attempts, "first_error", cur.Error)
 			fireWarning(dispatcher, svc, cur, ts)
+			// Recorded already-resolved so it shows up in the incident feed
+			// (e.g. a service's "Recent incidents") without ever touching the
+			// one-ongoing-incident-per-service invariant above.
+			if _, err := database.CreateWarningEvent(svc.ID, ts); err != nil {
+				slog.Error("incident: record warning event", "service", svc.ID, "error", err)
+			}
 		}
 	}
 }

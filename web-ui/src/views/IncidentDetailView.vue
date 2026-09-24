@@ -47,11 +47,21 @@ onMounted(load)
 const durationText = computed(() => {
   const inc = detail.value
   if (!inc) return ''
+  // A warning event is momentary (started/resolved at the same instant), not a
+  // span — a "duration" for it would just be a rounding artifact.
+  if (inc.severity === 'warning') return '—'
   const end = inc.resolvedAt ? new Date(inc.resolvedAt).getTime() : Date.now()
   const mins = Math.max(1, Math.round((end - new Date(inc.startedAt).getTime()) / 60000))
   if (mins < 60) return `${mins} min`
   const hrs = Math.floor(mins / 60)
   return hrs < 24 ? `${hrs}h ${mins % 60}m` : `${Math.floor(hrs / 24)}d ${hrs % 24}h`
+})
+
+const defaultTitle = computed(() => {
+  const inc = detail.value
+  if (!inc) return ''
+  if (inc.severity === 'warning') return 'Recovered on retry'
+  return inc.status === 'ongoing' ? 'Ongoing outage' : 'Outage'
 })
 
 function fmtDateTime(iso: string): string {
@@ -129,12 +139,20 @@ async function postComment() {
         <div class="min-w-0">
           <div class="flex items-center gap-2">
             <StatusDot
-              :status="detail.status === 'ongoing' ? 'offline' : 'online'"
-              :pulse="detail.status === 'ongoing'"
+              :status="
+                detail.severity === 'warning' ? 'warning' : detail.status === 'ongoing' ? 'offline' : 'online'
+              "
+              :pulse="detail.severity !== 'warning' && detail.status === 'ongoing'"
             />
             <h2 class="truncate text-2xl font-semibold tracking-tight">
-              {{ detail.title || (detail.status === 'ongoing' ? 'Ongoing outage' : 'Outage') }}
+              {{ detail.title || defaultTitle }}
             </h2>
+            <span
+              v-if="detail.severity === 'warning'"
+              class="rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-medium uppercase text-warning"
+            >
+              warning
+            </span>
           </div>
           <p class="mt-1 text-sm text-muted-foreground">
             <RouterLink :to="`/services/${detail.serviceId}`" class="text-primary hover:underline">

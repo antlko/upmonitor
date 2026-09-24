@@ -4,6 +4,8 @@ import type {
   ServiceMetrics,
   ChecksPage,
   Incident,
+  IncidentSeverity,
+  IncidentsPage,
   IncidentComment,
   IncidentDetail,
   Integration,
@@ -11,6 +13,7 @@ import type {
   User,
   UserRole,
   AppSettings,
+  DashboardStats,
   WidgetMode,
   ChartType,
 } from '@/types'
@@ -90,6 +93,7 @@ export const api = {
   deleteImage: (id: string) => request<void>('DELETE', `/api/services/${id}/image`),
 
   // Settings, config & users.
+  dashboardStats: () => request<DashboardStats>('GET', '/api/dashboard/stats'),
   getSettings: () => request<AppSettings>('GET', '/api/settings'),
   updateSettings: (settings: AppSettings) => request<AppSettings>('PUT', '/api/settings', settings),
   setConfigPath: (path: string) =>
@@ -100,12 +104,23 @@ export const api = {
   deleteUser: (id: number) => request<void>('DELETE', `/api/users/${id}`),
 
   // Incidents.
-  listIncidents: (params: { status?: string; serviceId?: string } = {}) => {
+  listIncidents: (
+    params: {
+      status?: string
+      severity?: IncidentSeverity
+      serviceId?: string
+      limit?: number
+      offset?: number
+    } = {},
+  ) => {
     const qs = new URLSearchParams()
     if (params.status) qs.set('status', params.status)
+    if (params.severity) qs.set('severity', params.severity)
     if (params.serviceId) qs.set('serviceId', params.serviceId)
+    if (params.limit) qs.set('limit', String(params.limit))
+    if (params.offset) qs.set('offset', String(params.offset))
     const suffix = qs.toString() ? `?${qs.toString()}` : ''
-    return request<Incident[]>('GET', `/api/incidents${suffix}`)
+    return request<IncidentsPage>('GET', `/api/incidents${suffix}`)
   },
   getIncident: (id: number) => request<IncidentDetail>('GET', `/api/incidents/${id}`),
   createIncident: (input: IncidentInput) => request<Incident>('POST', '/api/incidents', input),

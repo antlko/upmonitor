@@ -11,12 +11,24 @@ import (
 // already has an ongoing one (enforced by a partial unique index).
 var ErrOngoingExists = errors.New("an ongoing incident already exists for this service")
 
-// Incident is an outage record for a service. ResolvedAt is nil while ongoing.
+// Severity values for Incident.Severity.
+const (
+	SeverityOutage  = "outage"
+	SeverityWarning = "warning"
+)
+
+// Incident is an outage (or warning) record for a service. ResolvedAt is nil
+// while ongoing — which never happens for a SeverityWarning row: those are
+// always recorded already resolved, since a warning is a momentary event, not
+// something with a start and an end to track.
 type Incident struct {
-	ID         int64
-	ServiceID  string
-	Status     string // "ongoing" | "resolved"
-	Source     string // "auto" | "manual"
+	ID        int64
+	ServiceID string
+	Status    string // "ongoing" | "resolved"
+	Source    string // "auto" | "manual"
+	// Severity distinguishes a real outage (subject to the one-ongoing-per-
+	// service invariant) from a warning event (always resolved, no invariant).
+	Severity   string
 	Title      string
 	StartedAt  int64
 	ResolvedAt *int64
@@ -35,12 +47,12 @@ type IncidentComment struct {
 	CreatedAt  int64
 }
 
-const incidentCols = `id, service_id, status, source, COALESCE(title, ''), started_at, resolved_at, created_by, created_at, updated_at`
+const incidentCols = `id, service_id, status, source, severity, COALESCE(title, ''), started_at, resolved_at, created_by, created_at, updated_at`
 
 func scanIncident(row interface{ Scan(...any) error }) (*Incident, error) {
 	var inc Incident
 	var resolved, createdBy sql.NullInt64
-	if err := row.Scan(&inc.ID, &inc.ServiceID, &inc.Status, &inc.Source, &inc.Title,
+	if err := row.Scan(&inc.ID, &inc.ServiceID, &inc.Status, &inc.Source, &inc.Severity, &inc.Title,
 		&inc.StartedAt, &resolved, &createdBy, &inc.CreatedAt, &inc.UpdatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -83,6 +95,24 @@ func (db *DB) CreateIncident(serviceID, source string, startedAt int64, title *s
 		if isUniqueViolation(err) {
 			return nil, ErrOngoingExists
 		}
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return db.GetIncident(id)
+}
+
+// CreateWarningEvent records a momentary warning (a cycle that recovered on a
+// retry) as an already-resolved, severity='warning' incident row, so it shows
+// up alongside real outages in the incident feed. Unlike CreateIncident it
+// never collides with the one-ongoing-per-service index: status is 'resolved'
+// from the start.
+func (db *DB) CreateWarningEvent(serviceID string, ts int64) (*Incident, error) {
+	now := time.Now().Unix()
+	res, err := db.Exec(
+		`INSERT INTO incidents (service_id, status, source, severity, title, started_at, resolved_at, created_by, created_at, updated_at)
+		 VALUES (?, 'resolved', 'auto', 'warning', NULL, ?, ?, NULL, ?, ?)`,
+		serviceID, ts, ts, now, now)
+	if err != nil {
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
@@ -141,10 +171,9 @@ func (db *DB) DeleteServiceIncidents(serviceID string) error {
 	return err
 }
 
-// ListIncidents returns incidents filtered by service and/or status (empty
-// string = no filter), newest first. limit <= 0 means no limit.
-func (db *DB) ListIncidents(serviceID, status string, limit, offset int) ([]Incident, error) {
-	q := `SELECT ` + incidentCols + ` FROM incidents`
+// incidentFilter builds the WHERE clause shared by ListIncidents and
+// CountIncidents, so the two can never disagree about what a page counts.
+func incidentFilter(serviceID, status, severity string) (string, []any) {
 	var where []string
 	var args []any
 	if serviceID != "" {
@@ -155,10 +184,30 @@ func (db *DB) ListIncidents(serviceID, status string, limit, offset int) ([]Inci
 		where = append(where, "status = ?")
 		args = append(args, status)
 	}
-	if len(where) > 0 {
-		q += " WHERE " + strings.Join(where, " AND ")
+	if severity != "" {
+		where = append(where, "severity = ?")
+		args = append(args, severity)
 	}
-	q += " ORDER BY started_at DESC, id DESC"
+	if len(where) == 0 {
+		return "", args
+	}
+	return " WHERE " + strings.Join(where, " AND "), args
+}
+
+// CountIncidents returns how many incidents match the same filter ListIncidents
+// would use, ignoring limit/offset — for building pagination.
+func (db *DB) CountIncidents(serviceID, status, severity string) (int, error) {
+	where, args := incidentFilter(serviceID, status, severity)
+	var count int
+	err := db.QueryRow(`SELECT COUNT(*) FROM incidents`+where, args...).Scan(&count)
+	return count, err
+}
+
+// ListIncidents returns incidents filtered by service, status and/or severity
+// (empty string = no filter), newest first. limit <= 0 means no limit.
+func (db *DB) ListIncidents(serviceID, status, severity string, limit, offset int) ([]Incident, error) {
+	where, args := incidentFilter(serviceID, status, severity)
+	q := `SELECT ` + incidentCols + ` FROM incidents` + where + ` ORDER BY started_at DESC, id DESC`
 	if limit > 0 {
 		q += " LIMIT ? OFFSET ?"
 		args = append(args, limit, offset)
@@ -278,10 +327,16 @@ func (db *DB) ReplaceIncidents(incidents []Incident, comments []IncidentComment)
 		if createdBy != nil && !users[*createdBy] {
 			createdBy = nil
 		}
+		// An archive from before severity existed decodes it as "" (the Go zero
+		// value); those incidents were all real outages.
+		severity := inc.Severity
+		if severity == "" {
+			severity = SeverityOutage
+		}
 		if _, err := tx.Exec(
-			`INSERT INTO incidents (id, service_id, status, source, title, started_at, resolved_at, created_by, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			inc.ID, inc.ServiceID, inc.Status, inc.Source, nullStr(inc.Title),
+			`INSERT INTO incidents (id, service_id, status, source, severity, title, started_at, resolved_at, created_by, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			inc.ID, inc.ServiceID, inc.Status, inc.Source, severity, nullStr(inc.Title),
 			inc.StartedAt, inc.ResolvedAt, createdBy, inc.CreatedAt, inc.UpdatedAt); err != nil {
 			return err
 		}

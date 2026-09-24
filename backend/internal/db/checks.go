@@ -253,6 +253,18 @@ func (db *DB) UptimeSince(serviceID string, since int64) (pct float64, sampleCou
 	return pct, total, nil
 }
 
+// WarningServiceCountSince returns how many distinct services logged at least
+// one warning cycle since the given time — the dashboard's configurable
+// "Warning" tile, whose look-back window is settings.dashboard.warning_period_hours
+// rather than the fixed retention window MetricsForAll uses.
+func (db *DB) WarningServiceCountSince(since int64) (int, error) {
+	var count int
+	err := db.QueryRow(
+		`SELECT COUNT(DISTINCT service_id) FROM checks WHERE ts >= ? AND status = ?`,
+		since, StatusWarning).Scan(&count)
+	return count, err
+}
+
 // DeleteOlderThan removes checks older than cutoff and returns the row count.
 func (db *DB) DeleteOlderThan(cutoff int64) (int64, error) {
 	res, err := db.Exec(`DELETE FROM checks WHERE ts < ?`, cutoff)

@@ -131,10 +131,29 @@ is open exactly while the service is `offline`; `warning` counts as up.**
 
 | prev ↓ / current → | `online` | `warning` | `offline` |
 | --- | --- | --- | --- |
-| `online` | no-op | no incident; fire `warning` (opted-in channels only) | `CreateIncident` → `incident_start` |
+| `online` | no-op | no ongoing incident; fires a `warning` notification (opted-in channels only) and logs a `CreateWarningEvent` | `CreateIncident` → `incident_start` |
 | `warning` | no-op, no notification | no-op — this is what dedupes a service that blips every cycle | `CreateIncident` → `incident_start` |
-| `offline` | `ResolveOngoingIncident` → `incident_resolve` | same, and **no** warning notification: the resolve already says we are back | no-op — why a service that stays down doesn't spawn an incident every tick |
-| `unknown` | resolve (silent) | silent | `CreateIncident` → `incident_start` |
+| `offline` | `ResolveOngoingIncident` → `incident_resolve` | same, and **no** warning notification or event log: the resolve already says we are back | no-op — why a service that stays down doesn't spawn an incident every tick |
+| `unknown` | resolve (silent) | logs a `CreateWarningEvent` (unreachable in practice — `InitialStatus` never seeds `unknown`) | `CreateIncident` → `incident_start` |
+
+### Incident severity: outage vs. warning
+
+Every incident row carries a `severity`: `outage` (the table above, subject to
+the one-ongoing-per-service invariant below) or `warning` (a momentary
+retry-recovery event). `CreateWarningEvent` records a warning severity incident
+that is **already `resolved`, with `startedAt == resolvedAt`** — it never has an
+"open" phase, so it can never collide with the one-ongoing-incident index. This
+is what makes a service's "Recent incidents" (and the `/incidents` list) show
+warnings alongside real outages without blurring the two: a UI reading
+`severity` can style/filter them apart, while `status`/`source` keep meaning
+exactly what they meant before this field existed.
+
+`GET /api/incidents` accepts `?severity=` for exactly this reason:
+`ServiceDetailView.vue` fetches its chart's outage bands with `severity:
+'outage'` and its "Recent incidents" card (mixed severity, small limit)
+separately — a service that warns often would otherwise crowd real, older
+outages out of a single shared, necessarily-bounded page before the chart
+ever saw them.
 
 `prev == current` returns immediately, which is the overwhelmingly common path.
 `InitialStatus` deliberately still returns only `online`/`offline` — a third seed
@@ -307,6 +326,39 @@ horizontal room (`headerPad`) so a long name truncates *before* reaching them.
 buttons — and lets the name wrap to two lines (`line-clamp-2`) instead of
 truncating.
 
+### Configurable stat tiles: Warning period and Avg uptime scope
+
+The five stat tiles above the grid ("Services", "Online", "Offline",
+"Warning", "Avg uptime") are mostly a live read of `GET /api/services`. Two are
+admin-configurable, each via a pencil that fades in on hover
+(`opacity-0 group-hover:opacity-100`, so it never appears for a read-only
+viewer) and opens a small dialog:
+
+- **"Warning"** counts *distinct services that logged a warning within
+  `settings.dashboard.warning_period_hours`* (default 24h) — not, as the other
+  tiles are, each service's current live status. That needs its own query over
+  a window no other endpoint computes, hence `GET /api/dashboard/stats`
+  (`db.WarningServiceCountSince`) polled alongside the services list.
+  `services.warningCount` (the *current*-status count) is untouched and still
+  drives the sidebar badge — the two numbers can legitimately differ.
+- **"Avg uptime"** averages `service.uptime` over every service *except* those
+  listed in `settings.dashboard.uptime_excluded_services`. This one needs no
+  new endpoint: `uptime` is already on every service from `GET /api/services`,
+  so the filtering is a plain client-side computed
+  (`stores/services.ts`'s `avgUptime`, which reaches into the settings store
+  for the excluded-id list) — reused nowhere else, so it isn't worth a backend
+  round trip.
+
+Both dialogs write through `settings.update()`, which always resends the whole
+`dashboard` settings object (not just the changed key) — the same
+merge-then-PUT shape every other settings field already uses. Backend-side,
+`handleUpdateSettings` treats a present-but-empty
+`uptimeExcludedServices` array as "include everyone again" and a
+present-but-empty/absent one as "leave alone" (mirroring `Check.RetryDelays`'s
+existing nil-vs-empty convention), and `Validate` clamps a bad
+`warningPeriodHours` back into `[1, maxWarningPeriodHours]` rather than
+rejecting the request.
+
 ## 7. Navigation, roles & guards
 
 Two roles only: `admin` and `readonly` (a CHECK constraint on `users.role`).
@@ -412,8 +464,10 @@ Two behaviours worth knowing:
 | New config field | `config/config.go` struct + `Default()` + `normalize()` + `Validate()` → `config/clone.go` **only if the field is a reference type** (slice/map/pointer — value types ride along in `Clone`'s `copy`) → [CONFIGURATION.md](CONFIGURATION.md) |
 | New per-service preference | follow `widget.mode` / `chart.type`: config field → `serviceDTO` → `layoutItem` + an `if it.X != ""` guard in `handleUpdateLayout` → a store action that re-sends the current `x/y/w/h` (the handler assigns layout unconditionally) → card ⋯ menu |
 | Change the response-time chart | `services/ResponseTimeChart.vue` (detail) / `dashboard/SparklineChart.vue` (card) — both hand-rolled SVG, no chart library. Bucketing is server-side: `api.chooseBucket` + `db.SeriesFor` |
-| Change the ping console | `services/PingConsole.vue` — collapsing runs of successes is client-side on purpose; `db.ListChecks` returns raw rows |
+| Change the ping console | `services/PingConsole.vue` — collapsing runs of successes, and paging 10 collapsed lines at a time, are both client-side on purpose (fetches larger raw batches and pages the squashed result); `db.ListChecks` returns raw rows |
 | Change monitoring/incident behaviour | `monitor/scheduler.go` (when — including `runCycle`'s retry ladder) / `incident/incident.go` (what) |
+| Change the incidents list/pagination | `IncidentsView.vue` (page-number UI, via `common/PagerControls.vue`) → `stores/incidents.ts` (`INCIDENTS_PAGE_SIZE`) → `handleListIncidents` (`?limit=&offset=`, returns `{ incidents, total }`) → `db.ListIncidents`/`CountIncidents` |
+| Change a dashboard stat tile's configurability | `DashboardView.vue`'s hover-pencil buttons → `dashboard/WarningPeriodDialog.vue` / `dashboard/UptimeServicesDialog.vue` → `settings.update({ dashboard: {...} })` → `config.DashboardSettings` (`config.yaml` `settings.dashboard`) |
 | Add a check status | `db/checks.go` `CHECK` constraint (new migration) + every `IN ('online','warning')` aggregate → `ServiceStatus` in `web-ui/src/types` → `statusLabel`, `StatusDot`, `ServiceCard`'s three colour maps, `ServiceDetailView.statusPill`, `DashboardView.stats`, `AppSidebar` counters, both charts |
 | New notification channel | see §5 |
 | New page | route + `adminOnly` + `AppSidebar.vue` nav + API-side `auth, admin` |

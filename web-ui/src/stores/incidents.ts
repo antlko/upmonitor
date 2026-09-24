@@ -5,9 +5,14 @@ import { api, type IncidentInput } from '@/api'
 
 export type { IncidentInput }
 
+/** Rows per page on the incidents table. */
+export const INCIDENTS_PAGE_SIZE = 20
+
 /** Incidents list + CRUD, backed by the REST API. */
 export const useIncidentsStore = defineStore('incidents', () => {
   const incidents = ref<Incident[]>([])
+  const total = ref(0)
+  const page = ref(1)
   const loading = ref(false)
   const loaded = ref(false)
 
@@ -16,10 +21,20 @@ export const useIncidentsStore = defineStore('incidents', () => {
     if (i >= 0) incidents.value[i] = inc
   }
 
-  async function fetchIncidents(params: { status?: string; serviceId?: string } = {}) {
+  /** page defaults to the currently loaded page (1 on first load). */
+  async function fetchIncidents(params: { status?: string; serviceId?: string; page?: number } = {}) {
+    const targetPage = params.page ?? page.value
     loading.value = true
     try {
-      incidents.value = await api.listIncidents(params)
+      const res = await api.listIncidents({
+        status: params.status,
+        serviceId: params.serviceId,
+        limit: INCIDENTS_PAGE_SIZE,
+        offset: (targetPage - 1) * INCIDENTS_PAGE_SIZE,
+      })
+      incidents.value = res.incidents
+      total.value = res.total
+      page.value = targetPage
       loaded.value = true
     } finally {
       loading.value = false
@@ -33,6 +48,7 @@ export const useIncidentsStore = defineStore('incidents', () => {
   async function create(input: IncidentInput): Promise<Incident> {
     const inc = await api.createIncident(input)
     incidents.value.unshift(inc)
+    total.value += 1
     return inc
   }
 
@@ -49,7 +65,20 @@ export const useIncidentsStore = defineStore('incidents', () => {
   async function remove(id: number) {
     await api.deleteIncident(id)
     incidents.value = incidents.value.filter((i) => i.id !== id)
+    total.value = Math.max(0, total.value - 1)
   }
 
-  return { incidents, loading, loaded, fetchIncidents, getDetail, create, update, resolve, remove }
+  return {
+    incidents,
+    total,
+    page,
+    loading,
+    loaded,
+    fetchIncidents,
+    getDetail,
+    create,
+    update,
+    resolve,
+    remove,
+  }
 })

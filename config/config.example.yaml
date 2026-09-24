@@ -18,6 +18,9 @@ settings:
     retention_days: 30 # metrics history older than this is deleted
     retry_attempts: 3 # tries per failing check; 1 disables retries
     retry_delays: [1, 5, 10] # seconds between tries (N attempts use N-1 gaps)
+  dashboard:
+    warning_period_hours: 24 # look-back window for the "Warning" tile
+    uptime_excluded_services: [] # service ids left out of "Avg uptime"; empty = all
 
 services:
   - id: grafana # slug; also the image filename and metrics key

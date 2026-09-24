@@ -177,3 +177,33 @@ func TestUptimeSince(t *testing.T) {
 		t.Errorf("missing service = (%v, %d, %v)", pct, n, err)
 	}
 }
+
+func TestWarningServiceCountSince(t *testing.T) {
+	database := openTestDB(t)
+
+	insert := func(service string, ts int64, status string) {
+		t.Helper()
+		if err := database.InsertCheck(service, ts, status, nil, nil, "", 1); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+
+	// "a" warns twice (still one distinct service); "b" warns once but only
+	// before the window; "c" never warns.
+	insert("a", 1000, StatusWarning)
+	insert("a", 1100, StatusWarning)
+	insert("b", 500, StatusWarning)
+	insert("c", 1000, StatusOnline)
+
+	count, err := database.WarningServiceCountSince(900)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("count = %d, want 1 (only %q is within the window)", count, "a")
+	}
+
+	if count, err := database.WarningServiceCountSince(0); err != nil || count != 2 {
+		t.Errorf("count over the full history = %d, %v, want 2", count, err)
+	}
+}

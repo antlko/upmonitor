@@ -80,7 +80,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 		t.Fatalf("import: %v", err)
 	}
 
-	incidents, _ := dstDB.ListIncidents("", "", 0, 0)
+	incidents, _ := dstDB.ListIncidents("", "", "", 0, 0)
 	if len(incidents) != 1 || incidents[0].ServiceID != "api" {
 		t.Fatalf("imported incidents = %+v", incidents)
 	}
@@ -115,7 +115,7 @@ func TestImportWithoutBundlesLeavesDataUntouched(t *testing.T) {
 		t.Fatalf("import: %v", err)
 	}
 
-	if incidents, _ := dstDB.ListIncidents("", "", 0, 0); len(incidents) != 1 {
+	if incidents, _ := dstDB.ListIncidents("", "", "", 0, 0); len(incidents) != 1 {
 		t.Errorf("incidents wiped by bundle-less import: got %d, want 1", len(incidents))
 	}
 	if integrations, _ := dstDB.ListIntegrations(); len(integrations) != 1 {
