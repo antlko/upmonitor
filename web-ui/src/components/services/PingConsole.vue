@@ -21,16 +21,26 @@ const FETCH_BATCH = 500
 // Lines shown per page. Successful checks are the boring majority and collapse
 // to one line each, so a page can span a lot more than 10 raw checks.
 const LINES_PER_PAGE = 10
-// Safety cap on how many batches a single "next page" click will fetch, so a
-// service that has been up for its entire history can't trigger an unbounded
-// fetch loop — the user can just click Next again.
-const MAX_FETCH_ROUNDS = 5
+// Safety cap on how many batches a single "next page" click will fetch (up to
+// MAX_FETCH_ROUNDS * FETCH_BATCH raw rows), so a service with a very long
+// unbroken run of successful checks can't trigger an unbounded fetch loop in
+// one click. A long run can still legitimately take more than one click to
+// get past — nextPage() tells the user when that happens (see below) rather
+// than leaving the page looking unchanged with no explanation.
+const MAX_FETCH_ROUNDS = 20
 
 const page = ref(1)
+// Set when a Next click fetched more raw history but a long run of identical
+// checks meant it still wasn't enough to complete another page (bounded by
+// MAX_FETCH_ROUNDS): the run's line just grows in place rather than the page
+// advancing. Shown inline next to the pager rather than as a toast, since a
+// toast sits over the very button the user needs to click again.
+const noProgressHint = ref('')
 
 async function load() {
   loading.value = true
   page.value = 1
+  noProgressHint.value = ''
   try {
     const res = await api.serviceChecks(props.serviceId, { limit: FETCH_BATCH })
     rows.value = res.checks
@@ -130,13 +140,16 @@ const hasNext = computed(() => page.value * LINES_PER_PAGE < lines.value.length 
 
 async function prevPage() {
   if (hasPrev.value) page.value -= 1
+  noProgressHint.value = ''
 }
 
 async function nextPage() {
   if (loadingMore.value) return
+  noProgressHint.value = ''
   const needed = (page.value + 1) * LINES_PER_PAGE
   if (lines.value.length < needed && nextBefore.value != null) {
     loadingMore.value = true
+    const before = rows.value.length
     try {
       for (let i = 0; i < MAX_FETCH_ROUNDS && lines.value.length < needed && nextBefore.value != null; i++) {
         if (!(await fetchMoreRaw())) break
@@ -145,6 +158,12 @@ async function nextPage() {
       /* non-fatal: show whatever page is available */
     } finally {
       loadingMore.value = false
+    }
+    if (lines.value.length <= page.value * LINES_PER_PAGE && rows.value.length > before) {
+      noProgressHint.value =
+        nextBefore.value != null
+          ? 'Loaded more history — still one long run of successful checks. Click Next again to keep looking back.'
+          : 'Reached the end of the stored history.'
     }
   }
   if (lines.value.length > page.value * LINES_PER_PAGE) page.value += 1
@@ -235,5 +254,8 @@ function detail(row: CheckRow): string {
       @prev="prevPage"
       @next="nextPage"
     />
+    <p v-if="noProgressHint" class="border-t border-border/60 px-3 py-2 text-center text-xs text-muted-foreground">
+      {{ noProgressHint }}
+    </p>
   </div>
 </template>

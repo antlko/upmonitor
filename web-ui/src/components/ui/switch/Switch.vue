@@ -1,17 +1,27 @@
 <script setup lang="ts">
 import type { HTMLAttributes } from 'vue'
-import { SwitchRoot, type SwitchRootProps, SwitchThumb, useForwardProps } from 'reka-ui'
+import {
+  SwitchRoot,
+  type SwitchRootProps,
+  type SwitchRootEmits,
+  SwitchThumb,
+  useForwardPropsEmits,
+} from 'reka-ui'
 import { computed } from 'vue'
 import { cn } from '@/lib/utils'
 
 const props = defineProps<SwitchRootProps & { class?: HTMLAttributes['class'] }>()
+// useForwardProps alone drops event listeners like onUpdate:modelValue (it only
+// forwards declared props) — without also forwarding emits, toggleCheck()'s
+// write reaches nowhere, so the switch renders but never visibly changes state.
+const emits = defineEmits<SwitchRootEmits>()
 
 const delegatedProps = computed(() => {
   const { class: _, ...delegated } = props
   return delegated
 })
 
-const forwarded = useForwardProps(delegatedProps)
+const forwarded = useForwardPropsEmits(delegatedProps, emits)
 </script>
 
 <template>
