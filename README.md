@@ -36,19 +36,24 @@ grafana clone — while still doing the real work:
   still counts as uptime and opens no incident. Tune the attempts and delays
   globally or per service.
 - 🧩 **Drag‑and‑drop dashboard** — resize widgets and rearrange them; positions
-  are saved to `config.yaml`.
+  are saved to `config.yaml`. The **Warning** and **Avg uptime** summary tiles
+  are configurable — hover for a pencil to set the warning look‑back period or
+  pick which services count toward the average.
 - 🎛️ **Three widget modes** — icon only, icon + name, or a mini dashboard with
   response time, uptime and a sparkline. Switch mode in one click from the card.
 - 🔔 **Incidents that log themselves** — when a service goes down an incident
   opens automatically and closes when it recovers, with start/end times and a
-  duration. Add your own for planned work, and comment to keep the team in sync.
+  duration; a check that recovers on a retry logs a warning event alongside
+  them. Add your own for planned work, comment to keep the team in sync, and
+  page through the full history.
 - 📣 **Get told about it** — send incidents to **Telegram, Slack, email or any
   webhook**. Add a channel, hit *Send test*, done. Warnings are opt‑in per
   channel, so only real outages page you by default.
 - 🔍 **Per‑service detail** — uptime over 7/30/365 days, a response‑time chart,
-  recent incidents, a **ping console** that logs every check (successful runs
-  collapsed, failures spelled out with the attempt and the reason), and **SSL
-  certificate issuer and expiry** with a warning as the date approaches.
+  recent incidents (outages **and** warnings), a paginated **ping console**
+  that logs every check, 10 rows a page (successful runs collapsed, failures
+  spelled out with the attempt and the reason), and **SSL certificate issuer
+  and expiry** with a warning as the date approaches.
 - 📈 **Metrics that matter** — uptime %, response time, error count and last
   success, kept for 30 days (configurable) in SQLite and trimmed automatically.
 - 🎨 **Instant icons** — generate a crisp, unique icon for any service on‑device

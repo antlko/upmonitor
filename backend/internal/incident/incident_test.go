@@ -91,16 +91,16 @@ func TestOnTransitionMatrix(t *testing.T) {
 		wantCount   int
 	}{
 		{"online→online", false, db.StatusOnline, db.StatusOnline, false, 0},
-		{"online→warning opens nothing", false, db.StatusOnline, db.StatusWarning, false, 0},
+		{"online→warning logs a warning event, opens nothing", false, db.StatusOnline, db.StatusWarning, false, 1},
 		{"online→offline opens", false, db.StatusOnline, db.StatusOffline, true, 1},
 		{"warning→warning", false, db.StatusWarning, db.StatusWarning, false, 0},
 		{"warning→online", false, db.StatusWarning, db.StatusOnline, false, 0},
 		{"warning→offline opens", false, db.StatusWarning, db.StatusOffline, true, 1},
 		{"offline→online resolves", true, db.StatusOffline, db.StatusOnline, false, 1},
-		{"offline→warning resolves", true, db.StatusOffline, db.StatusWarning, false, 1},
+		{"offline→warning resolves, no extra warning event", true, db.StatusOffline, db.StatusWarning, false, 1},
 		{"offline→offline", true, db.StatusOffline, db.StatusOffline, true, 1},
 		{"unknown→offline opens", false, db.StatusUnknown, db.StatusOffline, true, 1},
-		{"unknown→warning is silent", false, db.StatusUnknown, db.StatusWarning, false, 0},
+		{"unknown→warning logs a warning event", false, db.StatusUnknown, db.StatusWarning, false, 1},
 		{"unknown→online is silent", false, db.StatusUnknown, db.StatusOnline, false, 0},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -124,6 +124,32 @@ func TestOnTransitionMatrix(t *testing.T) {
 				t.Errorf("incident count = %d, want %d", len(list), tt.wantCount)
 			}
 		})
+	}
+}
+
+// A pure warning transition (online→warning) must log an already-resolved,
+// severity='warning' incident — distinct from a real outage — so it shows up
+// in a service's "Recent incidents" without ever being "ongoing".
+func TestOnTransitionRecordsWarningEvent(t *testing.T) {
+	database := openDB(t)
+	svc := config.Service{ID: "svc", Name: "Svc", URL: "https://svc.example"}
+
+	OnTransition(context.Background(), database, nil, svc, db.StatusOnline,
+		Outcome{Status: db.StatusWarning, Attempts: 2, Error: "boom"}, 500)
+
+	list, err := database.ListIncidents("svc", "", 0, 0)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("list = %+v, %v, want exactly 1 incident", list, err)
+	}
+	got := list[0]
+	if got.Severity != db.SeverityWarning {
+		t.Errorf("severity = %q, want %q", got.Severity, db.SeverityWarning)
+	}
+	if got.Status != "resolved" || got.ResolvedAt == nil || *got.ResolvedAt != got.StartedAt {
+		t.Errorf("warning event should be immediately resolved at its own start, got %+v", got)
+	}
+	if got.StartedAt != 500 {
+		t.Errorf("startedAt = %d, want 500", got.StartedAt)
 	}
 }
 

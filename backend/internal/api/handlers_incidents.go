@@ -20,13 +20,35 @@ func (s *Server) serviceName(id string) string {
 	return "(deleted service)"
 }
 
-// GET /api/incidents?status=&serviceId= → incident list (newest first).
+// defaultIncidentPageSize/maxIncidentPageSize bound the incidents list's page size.
+const (
+	defaultIncidentPageSize = 20
+	maxIncidentPageSize     = 200
+)
+
+// GET /api/incidents?status=&serviceId=&limit=&offset= → a page of incidents
+// (newest first) plus the total matching the filter, for pagination.
 func (s *Server) handleListIncidents(c fiber.Ctx) error {
 	status := c.Query("status")
 	if status != "" && status != "ongoing" && status != "resolved" {
 		return fiber.NewError(fiber.StatusBadRequest, "status must be ongoing or resolved")
 	}
-	incidents, err := s.conn().ListIncidents(c.Query("serviceId"), status, 500, 0)
+	serviceID := c.Query("serviceId")
+
+	limit := defaultIncidentPageSize
+	if v, err := strconv.Atoi(c.Query("limit")); err == nil && v > 0 {
+		limit = min(v, maxIncidentPageSize)
+	}
+	var offset int
+	if v, err := strconv.Atoi(c.Query("offset")); err == nil && v > 0 {
+		offset = v
+	}
+
+	total, err := s.conn().CountIncidents(serviceID, status)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "could not load incidents")
+	}
+	incidents, err := s.conn().ListIncidents(serviceID, status, limit, offset)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "could not load incidents")
 	}
@@ -34,7 +56,7 @@ func (s *Server) handleListIncidents(c fiber.Ctx) error {
 	for _, inc := range incidents {
 		out = append(out, toIncidentDTO(inc, s.serviceName(inc.ServiceID)))
 	}
-	return c.JSON(out)
+	return c.JSON(incidentsResponse{Incidents: out, Total: total})
 }
 
 // GET /api/incidents/:id → an incident with its comments.

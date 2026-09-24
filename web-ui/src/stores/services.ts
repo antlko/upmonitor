@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import type { ChartType, Service, WidgetMode } from '@/types'
 import { api, type ServiceInput, type LayoutItem } from '@/api'
+import { useSettingsStore } from './settings'
 
 export type { ServiceInput }
 
@@ -27,8 +28,12 @@ export const useServicesStore = defineStore('services', () => {
   // that keeps blipping is up, but saying "all systems operational" would lie.
   const warningCount = computed(() => services.value.filter((s) => s.status === 'warning').length)
   const unknownCount = computed(() => services.value.filter((s) => s.status === 'unknown').length)
+  // Excluded ids are admin-configurable (dashboard "Avg uptime" tile pencil),
+  // so this store reaches into settings rather than duplicating the list.
+  const settings = useSettingsStore()
   const avgUptime = computed(() => {
-    const tracked = services.value.filter((s) => s.status !== 'unknown')
+    const excluded = new Set(settings.settings.dashboard.uptimeExcludedServices)
+    const tracked = services.value.filter((s) => s.status !== 'unknown' && !excluded.has(s.id))
     if (tracked.length === 0) return 0
     return tracked.reduce((sum, s) => sum + s.uptime, 0) / tracked.length
   })

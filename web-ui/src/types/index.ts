@@ -131,6 +131,12 @@ export interface ServiceMetrics extends Service {
 
 export type IncidentStatus = 'ongoing' | 'resolved'
 export type IncidentSource = 'auto' | 'manual'
+/**
+ * `outage` is a real, trackable incident (subject to the one-ongoing-per-service
+ * rule). `warning` is a momentary retry-recovery event — always already
+ * resolved, recorded so it shows up alongside outages in an incident feed.
+ */
+export type IncidentSeverity = 'outage' | 'warning'
 
 export interface Incident {
   id: number
@@ -138,12 +144,19 @@ export interface Incident {
   serviceName: string
   status: IncidentStatus
   source: IncidentSource
+  severity: IncidentSeverity
   title: string
   startedAt: string
   resolvedAt: string | null
   createdBy: number | null
   createdAt: string
   updatedAt: string
+}
+
+/** A page of incidents; `total` matches the same filter, ignoring limit/offset. */
+export interface IncidentsPage {
+  incidents: Incident[]
+  total: number
 }
 
 export interface IncidentComment {
@@ -190,5 +203,17 @@ export interface AppSettings {
     retryAttempts: number
     retryDelays: number[]
   }
+  dashboard: {
+    /** Look-back window (hours) for the dashboard's "Warning" tile. */
+    warningPeriodHours: number
+    /** Service ids left out of the "Avg uptime" tile's average. */
+    uptimeExcludedServices: string[]
+  }
   configDir: string
+}
+
+/** Runtime aggregates the dashboard's stat tiles need beyond GET /api/services. */
+export interface DashboardStats {
+  /** Distinct services that logged a warning within `settings.dashboard.warningPeriodHours`. */
+  warningServiceCount: number
 }

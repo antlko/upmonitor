@@ -188,10 +188,11 @@ type uptimeWindowsDTO struct {
 }
 
 type settingsDTO struct {
-	DefaultWidgetMode string           `json:"defaultWidgetMode"`
-	Theme             string           `json:"theme"`
-	Check             checkSettingsDTO `json:"check"`
-	ConfigDir         string           `json:"configDir"`
+	DefaultWidgetMode string               `json:"defaultWidgetMode"`
+	Theme             string               `json:"theme"`
+	Check             checkSettingsDTO     `json:"check"`
+	Dashboard         dashboardSettingsDTO `json:"dashboard"`
+	ConfigDir         string               `json:"configDir"`
 }
 
 type checkSettingsDTO struct {
@@ -202,10 +203,22 @@ type checkSettingsDTO struct {
 	RetryDelays     []int `json:"retryDelays"`
 }
 
+// dashboardSettingsDTO configures the two editable stat tiles on the main
+// dashboard: the "Warning" tile's look-back window, and which services count
+// toward the "Avg uptime" tile.
+type dashboardSettingsDTO struct {
+	WarningPeriodHours     int      `json:"warningPeriodHours"`
+	UptimeExcludedServices []string `json:"uptimeExcludedServices"`
+}
+
 func toSettingsDTO(c *config.Config, dir string) settingsDTO {
 	delays := c.Settings.Check.RetryDelays
 	if delays == nil {
 		delays = []int{}
+	}
+	excluded := c.Settings.Dashboard.UptimeExcludedServices
+	if excluded == nil {
+		excluded = []string{}
 	}
 	return settingsDTO{
 		DefaultWidgetMode: c.Settings.DefaultWidgetMode,
@@ -216,6 +229,10 @@ func toSettingsDTO(c *config.Config, dir string) settingsDTO {
 			RetentionDays:   c.Settings.Check.RetentionDays,
 			RetryAttempts:   c.Settings.Check.RetryAttempts,
 			RetryDelays:     delays,
+		},
+		Dashboard: dashboardSettingsDTO{
+			WarningPeriodHours:     c.Settings.Dashboard.WarningPeriodHours,
+			UptimeExcludedServices: excluded,
 		},
 		ConfigDir: dir,
 	}
@@ -233,17 +250,20 @@ func toUserDTO(u *db.User) userDTO {
 }
 
 type incidentDTO struct {
-	ID          int64   `json:"id"`
-	ServiceID   string  `json:"serviceId"`
-	ServiceName string  `json:"serviceName"`
-	Status      string  `json:"status"`
-	Source      string  `json:"source"`
-	Title       string  `json:"title"`
-	StartedAt   string  `json:"startedAt"`
-	ResolvedAt  *string `json:"resolvedAt"`
-	CreatedBy   *int64  `json:"createdBy"`
-	CreatedAt   string  `json:"createdAt"`
-	UpdatedAt   string  `json:"updatedAt"`
+	ID          int64  `json:"id"`
+	ServiceID   string `json:"serviceId"`
+	ServiceName string `json:"serviceName"`
+	Status      string `json:"status"`
+	Source      string `json:"source"`
+	// Severity is "outage" (a real, trackable outage) or "warning" (a momentary
+	// retry-recovery event, always already resolved). See ARCHITECTURE.md §4.
+	Severity   string  `json:"severity"`
+	Title      string  `json:"title"`
+	StartedAt  string  `json:"startedAt"`
+	ResolvedAt *string `json:"resolvedAt"`
+	CreatedBy  *int64  `json:"createdBy"`
+	CreatedAt  string  `json:"createdAt"`
+	UpdatedAt  string  `json:"updatedAt"`
 }
 
 type incidentCommentDTO struct {
@@ -259,6 +279,13 @@ type incidentDetailDTO struct {
 	Comments []incidentCommentDTO `json:"comments"`
 }
 
+// incidentsResponse is a page of incidents plus the total matching the same
+// filter (ignoring limit/offset), so the client can render page numbers.
+type incidentsResponse struct {
+	Incidents []incidentDTO `json:"incidents"`
+	Total     int           `json:"total"`
+}
+
 func toIncidentDTO(inc db.Incident, serviceName string) incidentDTO {
 	return incidentDTO{
 		ID:          inc.ID,
@@ -266,6 +293,7 @@ func toIncidentDTO(inc db.Incident, serviceName string) incidentDTO {
 		ServiceName: serviceName,
 		Status:      inc.Status,
 		Source:      inc.Source,
+		Severity:    inc.Severity,
 		Title:       inc.Title,
 		StartedAt:   iso(inc.StartedAt),
 		ResolvedAt:  isoPtr(inc.ResolvedAt),

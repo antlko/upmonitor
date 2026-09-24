@@ -30,6 +30,7 @@ Errors use `{ "error": "message" }` with an appropriate status code.
 | `POST /api/services/{id}/check`  | admin | Run a check immediately; returns updated metrics.     |
 | `GET /api/services/{id}/metrics` | user  | Aggregates, time series, uptime windows + TLS (`?range=1h\|6h\|24h\|7d\|30d\|365d`, default `24h`; unknown values fall back to `24h`). |
 | `GET /api/services/{id}/checks`  | user  | Stored check cycles, newest first, for the ping console (`?limit=` 1–500, default 100; `?before=` an id cursor). |
+| `GET /api/dashboard/stats`       | user  | Runtime aggregates the dashboard's stat tiles need beyond the list above — currently `{ "warningServiceCount": N }` (see below). |
 | `POST /api/services/{id}/image`  | admin | Upload a WebP icon (raw `image/webp` body).           |
 | `DELETE /api/services/{id}/image`| admin | Remove the icon.                                      |
 
@@ -41,7 +42,7 @@ transitions; these endpoints cover reading them plus the manual/edit path. See
 
 | Method & path                       | Auth  | Description                                                        |
 | ----------------------------------- | ----- | ------------------------------------------------------------------ |
-| `GET /api/incidents`                | user  | List, newest first (capped at 500). Filters: `?status=ongoing\|resolved`, `?serviceId=`. |
+| `GET /api/incidents`                | user  | A page of incidents, newest first, plus the total matching the filter — `{ incidents, total }`. Filters: `?status=ongoing\|resolved`, `?serviceId=`; paging: `?limit=` 1–200 (default 20), `?offset=`. |
 | `GET /api/incidents/{id}`           | user  | One incident **with its comments**.                                |
 | `POST /api/incidents`               | admin | Log one manually `{ serviceId, title?, startedAt?, resolvedAt? }`.¹ |
 | `PUT /api/incidents/{id}`           | admin | Edit `{ title?, startedAt?, resolvedAt? }`; setting `resolvedAt` resolves it.² |
@@ -227,6 +228,24 @@ Rows come back un-collapsed — squashing runs of successes is left to the clien
 because doing it server-side would break across page boundaries. Pass
 `?before=<nextBefore>` to page backwards.
 
+## Dashboard stats object
+
+`GET /api/dashboard/stats`:
+
+```jsonc
+{
+  "warningServiceCount": 2 // distinct services with a warning within settings.dashboard.warningPeriodHours
+}
+```
+
+Everything else the main dashboard's stat tiles need — service counts, the
+current per-service status, `uptime` for the "Avg uptime" average — already
+comes from `GET /api/services`; this endpoint exists only because
+`warningServiceCount` depends on an admin-configurable look-back window
+(`settings.dashboard.warningPeriodHours`, see
+[CONFIGURATION.md](CONFIGURATION.md)) rather than each service's current live
+status.
+
 ## Incident object
 
 ```jsonc
@@ -236,6 +255,7 @@ because doing it server-side would break across page boundaries. Pass
   "serviceName": "Grafana",      // "(deleted service)" if it's gone from config.yaml
   "status": "ongoing",           // ongoing | resolved
   "source": "auto",              // auto (from a transition) | manual
+  "severity": "outage",          // outage | warning — see below
   "title": "",                   // free text; usually empty for auto incidents
   "startedAt": "2026-07-15T10:45:24Z",
   "resolvedAt": null,            // null while ongoing
@@ -250,6 +270,11 @@ because doing it server-side would break across page boundaries. Pass
   ]
 }
 ```
+
+`severity: "warning"` is a momentary retry-recovery event (see
+[ARCHITECTURE.md §4](ARCHITECTURE.md#4-incident-lifecycle)) — it is always
+`status: "resolved"` with `startedAt == resolvedAt` and never subject to the
+one-ongoing-incident-per-service rule, since it never opened one.
 
 ## Integration object
 

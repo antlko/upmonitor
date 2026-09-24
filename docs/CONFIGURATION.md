@@ -31,6 +31,8 @@ services: [ ... ] # monitored services
 | `check.retention_days` | int (days)      | `30`     | Metrics history is trimmed to this window (hourly).             |
 | `check.retry_attempts` | int             | `3`      | Fallback attempts per cycle before a service is called offline. |
 | `check.retry_delays`   | list of int (s) | `[1,5,10]` | Fallback waits between attempts.                              |
+| `dashboard.warning_period_hours` | int (hours) | `24` | Look-back window for the main dashboard's "Warning" tile — how far back it counts services that logged a warning. Editable in the UI via the pencil that appears on hovering the tile (admin only). |
+| `dashboard.uptime_excluded_services` | list of string | `[]` | Service ids left out of the "Avg uptime" tile's average. Empty includes every service. Editable via the tile's hover pencil. |
 
 ## `services`
 

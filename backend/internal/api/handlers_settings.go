@@ -44,6 +44,14 @@ func (s *Server) handleUpdateSettings(c fiber.Ctx) error {
 		if in.Check.RetryDelays != nil {
 			cfg.Settings.Check.RetryDelays = append([]int(nil), in.Check.RetryDelays...)
 		}
+		if in.Dashboard.WarningPeriodHours > 0 {
+			cfg.Settings.Dashboard.WarningPeriodHours = in.Dashboard.WarningPeriodHours
+		}
+		// Non-nil (including explicitly empty) replaces the list — that's how
+		// "include every service again" is expressed; nil (omitted) leaves it.
+		if in.Dashboard.UptimeExcludedServices != nil {
+			cfg.Settings.Dashboard.UptimeExcludedServices = append([]string(nil), in.Dashboard.UptimeExcludedServices...)
+		}
 		return nil
 	})
 	if err != nil {

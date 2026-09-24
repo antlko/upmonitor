@@ -111,7 +111,10 @@ async function loadMetrics() {
 }
 async function loadIncidents() {
   try {
-    incidents.value = await api.listIncidents({ serviceId: id.value })
+    // A generous limit: the "Recent incidents" card only shows 6, but the
+    // chart's outage bands (below) need every outage in view, not just the
+    // most recent 6 events once warnings are mixed in.
+    incidents.value = (await api.listIncidents({ serviceId: id.value, limit: 100 })).incidents
   } catch {
     /* non-fatal */
   }
@@ -127,10 +130,14 @@ const recentIncidents = computed(() => incidents.value.slice(0, 6))
 const outages = computed<OutageWindow[]>(() => {
   const m = metrics.value
   if (!m) return []
-  return incidents.value.map((inc) => ({
-    start: new Date(inc.startedAt).getTime() / 1000,
-    end: inc.resolvedAt ? new Date(inc.resolvedAt).getTime() / 1000 : m.to,
-  }))
+  // Warning events are momentary and never opened an incident, so they don't
+  // belong in the chart's red outage bands — only real outages do.
+  return incidents.value
+    .filter((inc) => inc.severity === 'outage')
+    .map((inc) => ({
+      start: new Date(inc.startedAt).getTime() / 1000,
+      end: inc.resolvedAt ? new Date(inc.resolvedAt).getTime() / 1000 : m.to,
+    }))
 })
 
 onMounted(async () => {
@@ -174,6 +181,9 @@ async function onDelete() {
 }
 
 function incidentDuration(inc: Incident): string {
+  // A warning event is momentary (started/resolved at the same instant), not
+  // a span — a "duration" for it would just be a rounding artifact.
+  if (inc.severity === 'warning') return '—'
   const end = inc.resolvedAt ? new Date(inc.resolvedAt).getTime() : Date.now()
   const mins = Math.max(1, Math.round((end - new Date(inc.startedAt).getTime()) / 60000))
   if (mins < 60) return `${mins}m`
@@ -336,10 +346,20 @@ function fmtDateTime(iso: string): string {
                   :to="`/incidents/${inc.id}`"
                   class="-mx-2 flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-accent"
                 >
-                  <StatusDot :status="inc.status === 'ongoing' ? 'offline' : 'online'" :pulse="false" />
+                  <StatusDot
+                    :status="inc.severity === 'warning' ? 'warning' : inc.status === 'ongoing' ? 'offline' : 'online'"
+                    :pulse="false"
+                  />
                   <div class="min-w-0 flex-1">
                     <p class="truncate text-sm font-medium">
-                      {{ inc.title || (inc.status === 'ongoing' ? 'Ongoing outage' : 'Outage') }}
+                      {{
+                        inc.title ||
+                        (inc.severity === 'warning'
+                          ? 'Recovered on retry'
+                          : inc.status === 'ongoing'
+                            ? 'Ongoing outage'
+                            : 'Outage')
+                      }}
                     </p>
                     <p class="text-xs text-muted-foreground">{{ fmtDateTime(inc.startedAt) }}</p>
                   </div>

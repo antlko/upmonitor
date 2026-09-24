@@ -8,6 +8,9 @@ func (c *Config) Clone() *Config {
 	// array with the live config — and updateConfig mutates the clone before
 	// swapping it in, so readers would see half-applied edits.
 	cp.Settings.Check.RetryDelays = append([]int(nil), c.Settings.Check.RetryDelays...)
+	if es := c.Settings.Dashboard.UptimeExcludedServices; es != nil {
+		cp.Settings.Dashboard.UptimeExcludedServices = append([]string(nil), es...)
+	}
 	cp.Services = make([]Service, len(c.Services))
 	copy(cp.Services, c.Services)
 	for i := range c.Services {
