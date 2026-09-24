@@ -173,7 +173,7 @@ func (db *DB) DeleteServiceIncidents(serviceID string) error {
 
 // incidentFilter builds the WHERE clause shared by ListIncidents and
 // CountIncidents, so the two can never disagree about what a page counts.
-func incidentFilter(serviceID, status string) (string, []any) {
+func incidentFilter(serviceID, status, severity string) (string, []any) {
 	var where []string
 	var args []any
 	if serviceID != "" {
@@ -184,6 +184,10 @@ func incidentFilter(serviceID, status string) (string, []any) {
 		where = append(where, "status = ?")
 		args = append(args, status)
 	}
+	if severity != "" {
+		where = append(where, "severity = ?")
+		args = append(args, severity)
+	}
 	if len(where) == 0 {
 		return "", args
 	}
@@ -192,17 +196,17 @@ func incidentFilter(serviceID, status string) (string, []any) {
 
 // CountIncidents returns how many incidents match the same filter ListIncidents
 // would use, ignoring limit/offset — for building pagination.
-func (db *DB) CountIncidents(serviceID, status string) (int, error) {
-	where, args := incidentFilter(serviceID, status)
+func (db *DB) CountIncidents(serviceID, status, severity string) (int, error) {
+	where, args := incidentFilter(serviceID, status, severity)
 	var count int
 	err := db.QueryRow(`SELECT COUNT(*) FROM incidents`+where, args...).Scan(&count)
 	return count, err
 }
 
-// ListIncidents returns incidents filtered by service and/or status (empty
-// string = no filter), newest first. limit <= 0 means no limit.
-func (db *DB) ListIncidents(serviceID, status string, limit, offset int) ([]Incident, error) {
-	where, args := incidentFilter(serviceID, status)
+// ListIncidents returns incidents filtered by service, status and/or severity
+// (empty string = no filter), newest first. limit <= 0 means no limit.
+func (db *DB) ListIncidents(serviceID, status, severity string, limit, offset int) ([]Incident, error) {
+	where, args := incidentFilter(serviceID, status, severity)
 	q := `SELECT ` + incidentCols + ` FROM incidents` + where + ` ORDER BY started_at DESC, id DESC`
 	if limit > 0 {
 		q += " LIMIT ? OFFSET ?"

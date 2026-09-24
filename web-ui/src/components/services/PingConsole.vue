@@ -15,15 +15,16 @@ const loadingMore = ref(false)
 
 // How many raw rows to fetch per request from the server (a run of successes
 // squashes to one line, so this needs to be generous for a page of LINES to
-// usually be satisfied by a single fetch).
-const FETCH_BATCH = 100
+// usually be satisfied by a single fetch). 500 is the server's own cap
+// (maxCheckPageSize), so this is as few round trips as the API allows.
+const FETCH_BATCH = 500
 // Lines shown per page. Successful checks are the boring majority and collapse
 // to one line each, so a page can span a lot more than 10 raw checks.
 const LINES_PER_PAGE = 10
 // Safety cap on how many batches a single "next page" click will fetch, so a
 // service that has been up for its entire history can't trigger an unbounded
 // fetch loop — the user can just click Next again.
-const MAX_FETCH_ROUNDS = 20
+const MAX_FETCH_ROUNDS = 5
 
 const page = ref(1)
 
@@ -52,8 +53,14 @@ async function fetchMoreRaw(): Promise<boolean> {
 /**
  * Refresh only the newest rows, keeping anything already paged in. Rows are
  * immutable once written, so merging by id is enough — no reconciliation.
+ *
+ * Skipped while the user has paged into older history: prepending fresh rows
+ * shifts every line's index, so a page they're actively looking at would
+ * silently show different content out from under them. They'll pick up
+ * what they missed on returning to page 1.
  */
 async function refresh() {
+  if (page.value !== 1) return
   try {
     const res = await api.serviceChecks(props.serviceId, { limit: FETCH_BATCH })
     const known = new Set(rows.value.map((r) => r.id))

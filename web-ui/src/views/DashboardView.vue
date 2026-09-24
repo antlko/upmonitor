@@ -240,7 +240,7 @@ onUnmounted(() => {
           </div>
           <p class="mt-1 text-xl font-semibold tabular-nums">{{ stat.value }}</p>
           <button
-            v-if="auth.isAdmin && stat.key === 'warning'"
+            v-if="auth.isAdmin && settings.loaded && stat.key === 'warning'"
             class="absolute top-2.5 right-2.5 cursor-pointer text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
             title="Configure the warning look-back period"
             @click="warningPeriodOpen = true"
@@ -248,7 +248,7 @@ onUnmounted(() => {
             <Pencil class="size-3.5" />
           </button>
           <button
-            v-if="auth.isAdmin && stat.key === 'avgUptime'"
+            v-if="auth.isAdmin && settings.loaded && stat.key === 'avgUptime'"
             class="absolute top-2.5 right-2.5 cursor-pointer text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
             title="Configure which services are counted"
             @click="uptimeServicesOpen = true"

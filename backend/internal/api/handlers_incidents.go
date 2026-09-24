@@ -26,12 +26,19 @@ const (
 	maxIncidentPageSize     = 200
 )
 
-// GET /api/incidents?status=&serviceId=&limit=&offset= → a page of incidents
-// (newest first) plus the total matching the filter, for pagination.
+// GET /api/incidents?status=&severity=&serviceId=&limit=&offset= → a page of
+// incidents (newest first) plus the total matching the filter, for pagination.
+// `severity` lets a caller ask for outages only — e.g. a chart's outage bands,
+// which shouldn't be crowded out of a limited page by a chatty service's
+// warning events.
 func (s *Server) handleListIncidents(c fiber.Ctx) error {
 	status := c.Query("status")
 	if status != "" && status != "ongoing" && status != "resolved" {
 		return fiber.NewError(fiber.StatusBadRequest, "status must be ongoing or resolved")
+	}
+	severity := c.Query("severity")
+	if severity != "" && severity != db.SeverityOutage && severity != db.SeverityWarning {
+		return fiber.NewError(fiber.StatusBadRequest, "severity must be outage or warning")
 	}
 	serviceID := c.Query("serviceId")
 
@@ -44,11 +51,11 @@ func (s *Server) handleListIncidents(c fiber.Ctx) error {
 		offset = v
 	}
 
-	total, err := s.conn().CountIncidents(serviceID, status)
+	total, err := s.conn().CountIncidents(serviceID, status, severity)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "could not load incidents")
 	}
-	incidents, err := s.conn().ListIncidents(serviceID, status, limit, offset)
+	incidents, err := s.conn().ListIncidents(serviceID, status, severity, limit, offset)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "could not load incidents")
 	}

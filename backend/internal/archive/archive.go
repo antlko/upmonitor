@@ -93,7 +93,7 @@ func Export(dir string, w io.Writer, database *db.DB) error {
 }
 
 func exportIncidents(database *db.DB) ([]db.Incident, []db.IncidentComment, error) {
-	incidents, err := database.ListIncidents("", "", 0, 0)
+	incidents, err := database.ListIncidents("", "", "", 0, 0)
 	if err != nil {
 		return nil, nil, err
 	}

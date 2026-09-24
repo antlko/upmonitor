@@ -4,6 +4,7 @@ import type {
   ServiceMetrics,
   ChecksPage,
   Incident,
+  IncidentSeverity,
   IncidentsPage,
   IncidentComment,
   IncidentDetail,
@@ -104,10 +105,17 @@ export const api = {
 
   // Incidents.
   listIncidents: (
-    params: { status?: string; serviceId?: string; limit?: number; offset?: number } = {},
+    params: {
+      status?: string
+      severity?: IncidentSeverity
+      serviceId?: string
+      limit?: number
+      offset?: number
+    } = {},
   ) => {
     const qs = new URLSearchParams()
     if (params.status) qs.set('status', params.status)
+    if (params.severity) qs.set('severity', params.severity)
     if (params.serviceId) qs.set('serviceId', params.serviceId)
     if (params.limit) qs.set('limit', String(params.limit))
     if (params.offset) qs.set('offset', String(params.offset))

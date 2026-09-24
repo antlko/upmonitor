@@ -109,18 +109,25 @@ async function loadMetrics() {
     loading.value = false
   }
 }
+// "Recent incidents" (mixed severity) and the chart's outage bands (outages
+// only) are fetched separately, each with its own limit — sharing one fetch
+// would let a chatty service's warning events crowd real outages out of the
+// (necessarily bounded) page before the chart ever sees them.
+const outageIncidents = ref<Incident[]>([])
 async function loadIncidents() {
   try {
-    // A generous limit: the "Recent incidents" card only shows 6, but the
-    // chart's outage bands (below) need every outage in view, not just the
-    // most recent 6 events once warnings are mixed in.
-    incidents.value = (await api.listIncidents({ serviceId: id.value, limit: 100 })).incidents
+    const [recent, outages] = await Promise.all([
+      api.listIncidents({ serviceId: id.value, limit: 6 }),
+      api.listIncidents({ serviceId: id.value, severity: 'outage', limit: 100 }),
+    ])
+    incidents.value = recent.incidents
+    outageIncidents.value = outages.incidents
   } catch {
     /* non-fatal */
   }
 }
 
-const recentIncidents = computed(() => incidents.value.slice(0, 6))
+const recentIncidents = computed(() => incidents.value)
 
 /**
  * Outage spans for the chart's red bands. An ongoing incident ends at the
@@ -130,14 +137,10 @@ const recentIncidents = computed(() => incidents.value.slice(0, 6))
 const outages = computed<OutageWindow[]>(() => {
   const m = metrics.value
   if (!m) return []
-  // Warning events are momentary and never opened an incident, so they don't
-  // belong in the chart's red outage bands — only real outages do.
-  return incidents.value
-    .filter((inc) => inc.severity === 'outage')
-    .map((inc) => ({
-      start: new Date(inc.startedAt).getTime() / 1000,
-      end: inc.resolvedAt ? new Date(inc.resolvedAt).getTime() / 1000 : m.to,
-    }))
+  return outageIncidents.value.map((inc) => ({
+    start: new Date(inc.startedAt).getTime() / 1000,
+    end: inc.resolvedAt ? new Date(inc.resolvedAt).getTime() / 1000 : m.to,
+  }))
 })
 
 onMounted(async () => {

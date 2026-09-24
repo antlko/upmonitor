@@ -42,7 +42,7 @@ transitions; these endpoints cover reading them plus the manual/edit path. See
 
 | Method & path                       | Auth  | Description                                                        |
 | ----------------------------------- | ----- | ------------------------------------------------------------------ |
-| `GET /api/incidents`                | user  | A page of incidents, newest first, plus the total matching the filter — `{ incidents, total }`. Filters: `?status=ongoing\|resolved`, `?serviceId=`; paging: `?limit=` 1–200 (default 20), `?offset=`. |
+| `GET /api/incidents`                | user  | A page of incidents, newest first, plus the total matching the filter — `{ incidents, total }`. Filters: `?status=ongoing\|resolved`, `?severity=outage\|warning`, `?serviceId=`; paging: `?limit=` 1–200 (default 20), `?offset=`. |
 | `GET /api/incidents/{id}`           | user  | One incident **with its comments**.                                |
 | `POST /api/incidents`               | admin | Log one manually `{ serviceId, title?, startedAt?, resolvedAt? }`.¹ |
 | `PUT /api/incidents/{id}`           | admin | Edit `{ title?, startedAt?, resolvedAt? }`; setting `resolvedAt` resolves it.² |

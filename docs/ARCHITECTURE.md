@@ -148,6 +148,13 @@ warnings alongside real outages without blurring the two: a UI reading
 `severity` can style/filter them apart, while `status`/`source` keep meaning
 exactly what they meant before this field existed.
 
+`GET /api/incidents` accepts `?severity=` for exactly this reason:
+`ServiceDetailView.vue` fetches its chart's outage bands with `severity:
+'outage'` and its "Recent incidents" card (mixed severity, small limit)
+separately — a service that warns often would otherwise crowd real, older
+outages out of a single shared, necessarily-bounded page before the chart
+ever saw them.
+
 `prev == current` returns immediately, which is the overwhelmingly common path.
 `InitialStatus` deliberately still returns only `online`/`offline` — a third seed
 value would change nothing in the matrix. The one visible consequence: a restart

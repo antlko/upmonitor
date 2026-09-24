@@ -41,7 +41,7 @@ func TestOnTransition(t *testing.T) {
 
 	// No change: no incident created.
 	OnTransition(ctx, database, nil, svc, db.StatusOnline, Outcome{Status: db.StatusOnline}, 100)
-	if list, _ := database.ListIncidents("svc", "", 0, 0); len(list) != 0 {
+	if list, _ := database.ListIncidents("svc", "", "", 0, 0); len(list) != 0 {
 		t.Fatalf("no-transition created %d incidents, want 0", len(list))
 	}
 
@@ -54,7 +54,7 @@ func TestOnTransition(t *testing.T) {
 
 	// Still down: no new incident.
 	OnTransition(ctx, database, nil, svc, db.StatusOffline, Outcome{Status: db.StatusOffline}, 250)
-	if list, _ := database.ListIncidents("svc", "", 0, 0); len(list) != 1 {
+	if list, _ := database.ListIncidents("svc", "", "", 0, 0); len(list) != 1 {
 		t.Fatalf("still-down created extra incidents: %d", len(list))
 	}
 
@@ -67,7 +67,7 @@ func TestOnTransition(t *testing.T) {
 	// A second down→up cycle creates a distinct incident.
 	OnTransition(ctx, database, nil, svc, db.StatusOnline, Outcome{Status: db.StatusOffline}, 400)
 	OnTransition(ctx, database, nil, svc, db.StatusOffline, Outcome{Status: db.StatusOnline}, 500)
-	all, _ := database.ListIncidents("svc", "", 0, 0)
+	all, _ := database.ListIncidents("svc", "", "", 0, 0)
 	if len(all) != 2 {
 		t.Fatalf("expected 2 incidents after two cycles, got %d", len(all))
 	}
@@ -119,7 +119,7 @@ func TestOnTransitionMatrix(t *testing.T) {
 			if (ongoing != nil) != tt.wantOngoing {
 				t.Errorf("ongoing incident = %v, want %v", ongoing != nil, tt.wantOngoing)
 			}
-			list, _ := database.ListIncidents("svc", "", 0, 0)
+			list, _ := database.ListIncidents("svc", "", "", 0, 0)
 			if len(list) != tt.wantCount {
 				t.Errorf("incident count = %d, want %d", len(list), tt.wantCount)
 			}
@@ -137,7 +137,7 @@ func TestOnTransitionRecordsWarningEvent(t *testing.T) {
 	OnTransition(context.Background(), database, nil, svc, db.StatusOnline,
 		Outcome{Status: db.StatusWarning, Attempts: 2, Error: "boom"}, 500)
 
-	list, err := database.ListIncidents("svc", "", 0, 0)
+	list, err := database.ListIncidents("svc", "", "", 0, 0)
 	if err != nil || len(list) != 1 {
 		t.Fatalf("list = %+v, %v, want exactly 1 incident", list, err)
 	}
