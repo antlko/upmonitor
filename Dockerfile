@@ -1,7 +1,10 @@
 # syntax=docker/dockerfile:1
 
 # --- Stage 1: build the Vue single-page app ---
-FROM node:22-alpine AS web
+# Runs natively on the build platform: the output is plain JS/HTML/CSS with
+# no arch dependency, so building it once here avoids QEMU-emulating npm for
+# every target platform (emulated npm ci is extremely slow).
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web
 WORKDIR /web
 COPY web-ui/package.json web-ui/package-lock.json ./
 RUN npm ci
